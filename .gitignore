@@ -1,0 +1,19 @@
+# Markdown files
+*.md
+!README.md
+
+
+# Virtual environment
+venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# OS
+.DS_Store
+
+# Documents
+*.pdf
+*.pptx

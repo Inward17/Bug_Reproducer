@@ -1,0 +1,7 @@
+{
+  "job_id": "4f21315b-7497-4733-9c4f-7de0853de559",
+  "status": "processing",
+  "bug_report": "Login always shows Invalid credentials even with correct username and password",
+  "target_url": "http://host.docker.internal:8080/login",
+  "created_at": "2026-02-27T18:37:54.118209+00:00"
+}

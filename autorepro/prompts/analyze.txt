@@ -1,0 +1,17 @@
+You are a QA automation expert. Analyse the bug report below and return ONLY valid JSON.
+No markdown. No prose. No code fences. Raw JSON only.
+
+Bug report:
+{bug_report}
+
+Target URL:
+{target_url}
+
+Return this exact JSON structure:
+{{
+  "inferred_steps":    ["ordered list of steps a human would perform in a browser"],
+  "target_elements":   ["CSS selectors or XPath for key UI elements — prefer CSS"],
+  "expected_behavior": "what should happen when the bug is NOT present",
+  "success_condition": "exact, binary, observable condition that proves the bug IS reproduced",
+  "risk_factors":      ["potential issues: timing, auth, dynamic content, etc."]
+}}

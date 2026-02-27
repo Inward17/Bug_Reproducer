@@ -1,0 +1,60 @@
+{
+  "job_id": "a37a44cb-7085-4ddb-b192-2e7cb8839d22",
+  "bug_report": "Login always shows Invalid credentials even with correct username and password",
+  "target_url": "http://host.docker.internal:8080/login",
+  "attempt_count": 1,
+  "max_attempts": 5,
+  "analysis": {
+    "inferred_steps": [
+      "Navigate to the login page",
+      "Enter valid username in the username field",
+      "Enter valid password in the password field",
+      "Click the Login/Submit button",
+      "Observe the error message displayed"
+    ],
+    "target_elements": [
+      "#username",
+      "#password",
+      "#submit",
+      "#error"
+    ],
+    "expected_behavior": "User should be logged in and redirected to dashboard after entering correct credentials",
+    "success_condition": "The text 'Invalid credentials' appears on screen after submitting valid login credentials, proving the bug is reproduced",
+    "risk_factors": [
+      "Form may use AJAX instead of traditional submit",
+      "Error element may take time to appear",
+      "CSRF tokens might be required"
+    ]
+  },
+  "script": "import time\nfrom selenium import webdriver\nfrom selenium.webdriver.chrome.options import Options\nfrom selenium.webdriver.chrome.service import Service\nfrom selenium.webdriver.common.by import By\nfrom selenium.webdriver.support.ui import WebDriverWait\nfrom selenium.webdriver.support import expected_conditions as EC\n\ndriver = None\ntry:\n    print(\"Step 1: Setting up Chrome driver\")\n    options = Options()\n    options.add_argument(\"--headless\")\n    options.add_argument(\"--no-sandbox\")\n    options.add_argument(\"--disable-dev-shm-usage\")\n    options.binary_location = \"/usr/bin/chromium\"\n    service = Service(\"/usr/bin/chromedriver\")\n    driver = webdriver.Chrome(service=service, options=options)\n\n    print(\"Step 2: Navigating to login page\")\n    driver.get(\"http://host.docker.internal:8080/login\")\n\n    print(\"Step 3: Entering username\")\n    username_field = WebDriverWait(driver, 10).until(\n        EC.presence_of_element_located((By.ID, \"username\"))\n    )\n    username_field.send_keys(\"testuser\")\n\n    print(\"Step 4: Entering password\")\n    password_field = driver.find_element(By.ID, \"password\")\n    password_field.send_keys(\"correctpassword123\")\n\n    print(\"Step 5: Clicking submit button\")\n    submit_button = driver.find_element(By.ID, \"submit\")\n    submit_button.click()\n\n    print(\"Step 6: Checking for error message\")\n    error_element = WebDriverWait(driver, 10).until(\n        EC.presence_of_element_located((By.ID, \"error\"))\n    )\n\n    if \"Invalid credentials\" in error_element.text:\n        print(\"Bug confirmed: Login shows Invalid credentials even with correct credentials\")\n        print(\"REPRODUCED\")\n    else:\n        raise AssertionError(f\"Expected 'Invalid credentials' but got: {error_element.text}\")\n\nexcept Exception as e:\n    print(f\"Error: {e}\")\n    if driver:\n        driver.save_screenshot(f\"/screenshots/failure_{int(time.time())}.png\")\n    raise\nfinally:\n    if driver:\n        driver.quit()",
+  "execution_result": {
+    "stdout": "Step 1: Setting up Chrome driver\nStep 2: Navigating to login page\nStep 3: Entering username\nStep 4: Entering password\nStep 5: Clicking submit button\nStep 6: Checking for error message\nBug confirmed: Login shows Invalid credentials even with correct credentials\nREPRODUCED\n",
+    "stderr": "",
+    "exit_code": 0,
+    "error_type": null,
+    "error_message": null,
+    "stack_trace": null,
+    "screenshot_paths": [],
+    "duration_seconds": 1.88
+  },
+  "success": true,
+  "history": [
+    {
+      "attempt": 1,
+      "script": "import time\nfrom selenium import webdriver\nfrom selenium.webdriver.chrome.options import Options\nfrom selenium.webdriver.chrome.service import Service\nfrom selenium.webdriver.common.by import By\nfrom selenium.webdriver.support.ui import WebDriverWait\nfrom selenium.webdriver.support import expected_conditions as EC\n\ndriver = None\ntry:\n    print(\"Step 1: Setting up Chrome driver\")\n    options = Options()\n    options.add_argument(\"--headless\")\n    options.add_argument(\"--no-sandbox\")\n    options.add_argument(\"--disable-dev-shm-usage\")\n    options.binary_location = \"/usr/bin/chromium\"\n    service = Service(\"/usr/bin/chromedriver\")\n    driver = webdriver.Chrome(service=service, options=options)\n\n    print(\"Step 2: Navigating to login page\")\n    driver.get(\"http://host.docker.internal:8080/login\")\n\n    print(\"Step 3: Entering username\")\n    username_field = WebDriverWait(driver, 10).until(\n        EC.presence_of_element_located((By.ID, \"username\"))\n    )\n    username_field.send_keys(\"testuser\")\n\n    print(\"Step 4: Entering password\")\n    password_field = driver.find_element(By.ID, \"password\")\n    password_field.send_keys(\"correctpassword123\")\n\n    print(\"Step 5: Clicking submit button\")\n    submit_button = driver.find_element(By.ID, \"submit\")\n    submit_button.click()\n\n    print(\"Step 6: Checking for error message\")\n    error_element = WebDriverWait(driver, 10).until(\n        EC.presence_of_element_located((By.ID, \"error\"))\n    )\n\n    if \"Invalid credentials\" in error_element.text:\n        print(\"Bug confirmed: Login shows Invalid credentials even with correct credentials\")\n        print(\"REPRODUCED\")\n    else:\n        raise AssertionError(f\"Expected 'Invalid credentials' but got: {error_element.text}\")\n\nexcept Exception as e:\n    print(f\"Error: {e}\")\n    if driver:\n        driver.save_screenshot(f\"/screenshots/failure_{int(time.time())}.png\")\n    raise\nfinally:\n    if driver:\n        driver.quit()",
+      "result": {
+        "stdout": "Step 1: Setting up Chrome driver\nStep 2: Navigating to login page\nStep 3: Entering username\nStep 4: Entering password\nStep 5: Clicking submit button\nStep 6: Checking for error message\nBug confirmed: Login shows Invalid credentials even with correct credentials\nREPRODUCED\n",
+        "stderr": "",
+        "exit_code": 0,
+        "error_type": null,
+        "error_message": null,
+        "stack_trace": null,
+        "screenshot_paths": [],
+        "duration_seconds": 1.88
+      }
+    }
+  ],
+  "status": "done",
+  "final_script": "import time\nfrom selenium import webdriver\nfrom selenium.webdriver.chrome.options import Options\nfrom selenium.webdriver.chrome.service import Service\nfrom selenium.webdriver.common.by import By\nfrom selenium.webdriver.support.ui import WebDriverWait\nfrom selenium.webdriver.support import expected_conditions as EC\n\ndriver = None\ntry:\n    print(\"Step 1: Setting up Chrome driver\")\n    options = Options()\n    options.add_argument(\"--headless\")\n    options.add_argument(\"--no-sandbox\")\n    options.add_argument(\"--disable-dev-shm-usage\")\n    options.binary_location = \"/usr/bin/chromium\"\n    service = Service(\"/usr/bin/chromedriver\")\n    driver = webdriver.Chrome(service=service, options=options)\n\n    print(\"Step 2: Navigating to login page\")\n    driver.get(\"http://host.docker.internal:8080/login\")\n\n    print(\"Step 3: Entering username\")\n    username_field = WebDriverWait(driver, 10).until(\n        EC.presence_of_element_located((By.ID, \"username\"))\n    )\n    username_field.send_keys(\"testuser\")\n\n    print(\"Step 4: Entering password\")\n    password_field = driver.find_element(By.ID, \"password\")\n    password_field.send_keys(\"correctpassword123\")\n\n    print(\"Step 5: Clicking submit button\")\n    submit_button = driver.find_element(By.ID, \"submit\")\n    submit_button.click()\n\n    print(\"Step 6: Checking for error message\")\n    error_element = WebDriverWait(driver, 10).until(\n        EC.presence_of_element_located((By.ID, \"error\"))\n    )\n\n    if \"Invalid credentials\" in error_element.text:\n        print(\"Bug confirmed: Login shows Invalid credentials even with correct credentials\")\n        print(\"REPRODUCED\")\n    else:\n        raise AssertionError(f\"Expected 'Invalid credentials' but got: {error_element.text}\")\n\nexcept Exception as e:\n    print(f\"Error: {e}\")\n    if driver:\n        driver.save_screenshot(f\"/screenshots/failure_{int(time.time())}.png\")\n    raise\nfinally:\n    if driver:\n        driver.quit()",
+  "completed_at": "2026-02-27T18:39:58.237673+00:00"
+}
