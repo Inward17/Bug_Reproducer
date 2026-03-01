@@ -1,5 +1,7 @@
 """Node 4 — Deterministic success/failure classifier. Zero LLM calls."""
 
+import re
+
 from agent.state import AgentState, FailureType
 from utils.logger import get_logger
 
@@ -13,14 +15,14 @@ def evaluate_node(state: AgentState) -> AgentState:
     stderr  = result.get("stderr", "")
     success = "REPRODUCED" in stdout
 
-    if not success:
+    if not success and not result.get("error_type"):
         if "NoSuchElementException" in stderr:
             failure_type = FailureType.ELEMENT_NOT_FOUND
         elif "TimeoutException" in stderr:
             failure_type = FailureType.TIMEOUT
         elif "AssertionError" in stderr:
             failure_type = FailureType.ASSERTION_ERROR
-        elif "ConnectionRefused" in stdout or "5xx" in stdout:
+        elif "ConnectionRefused" in stdout or re.search(r'\b5\d{2}\b', stdout):
             failure_type = FailureType.NETWORK_ERROR
         else:
             failure_type = FailureType.UNKNOWN

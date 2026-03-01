@@ -14,7 +14,7 @@ def parse(stdout: str, stderr: str, exit_code: int) -> dict:
         error_type = "Timeout"
     elif "AssertionError" in stderr:
         error_type = "AssertionError"
-    elif "ConnectionRefused" in stdout or "5xx" in stdout:
+    elif "ConnectionRefused" in stdout or re.search(r'\b5\d{2}\b', stdout):
         error_type = "NetworkError"
     elif exit_code != 0:
         error_type = "Unknown"

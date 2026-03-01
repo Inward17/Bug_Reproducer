@@ -1,6 +1,7 @@
 """AST-based static code analysis for security — blocks dangerous constructs before execution."""
 
 import ast
+import posixpath
 
 BLOCKED_IMPORTS = {"os", "subprocess", "socket", "shutil", "sys", "pathlib"}
 BLOCKED_BUILTINS = {"eval", "exec", "compile", "__import__"}
@@ -32,7 +33,15 @@ def check(script: str) -> None:
                 raise SecurityError(f"Blocked builtin: {node.func.id}()")
 
         if isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name) and node.func.id == "open":
-                if node.args and isinstance(node.args[0], ast.Constant):
-                    if "/screenshots/" not in str(node.args[0].value):
-                        raise SecurityError("open() outside /screenshots/ is blocked")
+            func = node.func
+            is_open = (isinstance(func, ast.Name) and func.id == "open") or \
+                      (isinstance(func, ast.Attribute) and func.attr == "open")
+            if is_open:
+                # Allow only: open("/screenshots/...") with a static string literal
+                if (node.args
+                        and isinstance(node.args[0], ast.Constant)
+                        and isinstance(node.args[0].value, str)
+                        and posixpath.normpath(node.args[0].value).startswith("/screenshots/")):
+                    pass  # Allowed
+                else:
+                    raise SecurityError("open() outside /screenshots/ is blocked")

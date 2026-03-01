@@ -34,6 +34,6 @@ graph.add_conditional_edges("evaluate", route_after_evaluate, {
     "refine":      "refine",
     "end_failure": END,
 })
-graph.add_edge("refine", "generate")
+graph.add_edge("refine", "execute")
 
 compiled = graph.compile()

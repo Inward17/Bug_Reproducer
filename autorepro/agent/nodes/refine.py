@@ -19,6 +19,12 @@ def _get_llm():
     if config.LLM_PROVIDER == "anthropic":
         from langchain_anthropic import ChatAnthropic
         return ChatAnthropic(model=config.LLM_MODEL, temperature=0.3)
+    if config.LLM_PROVIDER == "google":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        return ChatGoogleGenerativeAI(model=config.LLM_MODEL, temperature=0.3)
+    if config.LLM_PROVIDER == "ollama":
+        from langchain_ollama import ChatOllama
+        return ChatOllama(model=config.LLM_MODEL, temperature=0.3)
     from langchain_openai import ChatOpenAI
     return ChatOpenAI(model=config.LLM_MODEL, temperature=0.3)
 
@@ -33,13 +39,31 @@ def _strip_fences(text: str) -> str:
     return "\n".join(lines)
 
 
+def _extract_script(content: str) -> tuple[str, str]:
+    """Separate LLM explanation text from the Python script.
+
+    Returns (refinement_note, script_code).
+    """
+    lines = content.strip().splitlines()
+    python_start_keywords = ('import ', 'from ', 'def ', 'class ', 'try:', '#!', '#', 'driver')
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped and any(stripped.startswith(kw) for kw in python_start_keywords):
+            note = " ".join(lines[:i]).strip() if i > 0 else ""
+            script = "\n".join(lines[i:])
+            return note or content[:200], _strip_fences(script)
+    # Fallback: treat entire content as script
+    return content[:200], _strip_fences(content)
+
+
 def refine_node(state: AgentState) -> AgentState:
     """Node 5: LLM rewrites the script based on failure feedback."""
     history_summary = "\n".join(
         f"Attempt {h['attempt']}: error_type={h['result'].get('error_type')}, note={h.get('refinement_note', 'N/A')}"
         for h in state["history"]
     )
-    template = Path("prompts/refine.txt").read_text()
+    project_root = Path(__file__).resolve().parent.parent.parent
+    template = (project_root / "prompts" / "refine.txt").read_text()
     prompt   = template.format(
         previous_script=state["script"],
         failure_json=json.dumps(state["execution_result"], indent=2),
@@ -49,9 +73,7 @@ def refine_node(state: AgentState) -> AgentState:
     response = llm.invoke(prompt)
     content  = response.content.strip()
 
-    lines            = content.splitlines()
-    refinement_note  = " ".join(lines[:2]) if len(lines) >= 2 else content[:200]
-    corrected_script = _strip_fences(content)
+    refinement_note, corrected_script = _extract_script(content)
 
     try:
         ast.parse(corrected_script)

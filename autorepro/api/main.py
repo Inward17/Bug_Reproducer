@@ -6,6 +6,8 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from api.routes import router
 from utils import config
@@ -21,7 +23,7 @@ async def lifespan(app: FastAPI):
         docker.from_env().ping()
         log.info("docker_daemon_ok")
     except Exception as e:
-        raise RuntimeError(f"Docker daemon unreachable: {e}") from e
+        log.warning("docker_daemon_unavailable", error=str(e))
     Path(config.DATA_DIR, "jobs").mkdir(parents=True, exist_ok=True)
     Path(config.DATA_DIR, "artifacts").mkdir(parents=True, exist_ok=True)
     yield
@@ -35,6 +37,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(router)
+
+# Mount static files (CSS, JS)
+static_dir = Path(__file__).resolve().parent.parent / "static"
+app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+
+@app.get("/")
+async def root():
+    """Serve the frontend SPA."""
+    return FileResponse(str(static_dir / "index.html"))
 
 
 @app.get("/health")

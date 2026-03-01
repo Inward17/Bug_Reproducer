@@ -19,6 +19,12 @@ def _get_llm():
     if config.LLM_PROVIDER == "anthropic":
         from langchain_anthropic import ChatAnthropic
         return ChatAnthropic(model=config.LLM_MODEL, temperature=0.2)
+    if config.LLM_PROVIDER == "google":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        return ChatGoogleGenerativeAI(model=config.LLM_MODEL, temperature=0.2)
+    if config.LLM_PROVIDER == "ollama":
+        from langchain_ollama import ChatOllama
+        return ChatOllama(model=config.LLM_MODEL, temperature=0.2)
     from langchain_openai import ChatOpenAI
     return ChatOpenAI(model=config.LLM_MODEL, temperature=0.2)
 
@@ -40,7 +46,8 @@ def generate_node(state: AgentState) -> AgentState:
         for h in state["history"]
     ) or "None"
 
-    template = Path("prompts/generate.txt").read_text()
+    project_root = Path(__file__).resolve().parent.parent.parent
+    template = (project_root / "prompts" / "generate.txt").read_text()
     prompt   = template.format(
         analysis_json=json.dumps(state["analysis"], indent=2),
         target_url=state["target_url"],

@@ -81,3 +81,9 @@ async def get_screenshot(job_id: str, filename: str):
     if not p.exists():
         raise HTTPException(status_code=404, detail="Screenshot not found")
     return FileResponse(str(p), media_type="image/png")
+
+
+@router.get("/jobs")
+async def list_jobs():
+    """List all jobs for the history panel."""
+    return job_store.list_all()

@@ -27,11 +27,18 @@ def execute_node(state: AgentState) -> AgentState:
             "error_type": "SecurityViolation", "error_message": str(e),
             "stack_trace": None, "screenshot_paths": [], "duration_seconds": 0,
         }
-    except runner.TimeoutError:
+    except runner.SandboxTimeoutError:
         result = {
             "stdout": "", "stderr": "Execution timed out.", "exit_code": -1,
             "error_type": "Timeout", "error_message": "Container timeout",
             "stack_trace": None, "screenshot_paths": [], "duration_seconds": config.SANDBOX_TIMEOUT_SECONDS,
+        }
+    except Exception as e:
+        log.error("execute_unexpected_error", job_id=state["job_id"], error=str(e))
+        result = {
+            "stdout": "", "stderr": str(e), "exit_code": -1,
+            "error_type": "InternalError", "error_message": str(e),
+            "stack_trace": None, "screenshot_paths": [], "duration_seconds": 0,
         }
 
     new_history = list(state["history"]) + [{"attempt": attempt_num, "script": state["script"], "result": result}]

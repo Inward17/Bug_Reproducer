@@ -1,12 +1,12 @@
 """Pydantic request/response models for the AutoRepro API."""
 
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl
 from typing import Optional, Literal
 
 
 class ReproduceRequest(BaseModel):
     """Request body for POST /reproduce."""
-    bug_report: str
+    bug_report: str = Field(..., min_length=20)
     target_url: HttpUrl
 
 

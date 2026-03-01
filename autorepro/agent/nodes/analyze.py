@@ -18,13 +18,20 @@ def _get_llm():
     if config.LLM_PROVIDER == "anthropic":
         from langchain_anthropic import ChatAnthropic
         return ChatAnthropic(model=config.LLM_MODEL, temperature=0)
+    if config.LLM_PROVIDER == "google":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        return ChatGoogleGenerativeAI(model=config.LLM_MODEL, temperature=0)
+    if config.LLM_PROVIDER == "ollama":
+        from langchain_ollama import ChatOllama
+        return ChatOllama(model=config.LLM_MODEL, temperature=0)
     from langchain_openai import ChatOpenAI
     return ChatOpenAI(model=config.LLM_MODEL, temperature=0)
 
 
 def analyze_node(state: AgentState) -> AgentState:
     """Node 1: Parse bug report into structured AnalysisResult JSON."""
-    template = Path("prompts/analyze.txt").read_text()
+    project_root = Path(__file__).resolve().parent.parent.parent
+    template = (project_root / "prompts" / "analyze.txt").read_text()
     prompt   = template.format(bug_report=state["bug_report"], target_url=state["target_url"])
     llm      = _get_llm()
 

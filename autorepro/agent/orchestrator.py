@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from agent.graph import compiled
 from agent.state import AgentState
 from storage import jobs as job_store
+from storage.artifacts import save_final_script
 from utils import config
 from utils.id_generator import new_job_id
 from utils.logger import get_logger
@@ -14,8 +15,10 @@ log = get_logger(__name__)
 
 def run_agent(bug_report: str, target_url: str, job_id: str | None = None) -> dict:
     """Public entrypoint. Runs the full agent loop and persists the result."""
+    caller_provided_job = job_id is not None
     if job_id is None:
         job_id = new_job_id()
+
     initial_state: AgentState = {
         "job_id": job_id,
         "bug_report": bug_report,
@@ -28,11 +31,14 @@ def run_agent(bug_report: str, target_url: str, job_id: str | None = None) -> di
         "success": False,
         "history": [],
     }
-    job_store.save(job_id, {
-        **initial_state,
-        "status": "processing",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
+
+    # Only save initial state if the API layer hasn't already created the job
+    if not caller_provided_job:
+        job_store.save(job_id, {
+            **initial_state,
+            "status": "processing",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
 
     try:
         final_state = compiled.invoke(initial_state)
@@ -42,6 +48,9 @@ def run_agent(bug_report: str, target_url: str, job_id: str | None = None) -> di
             "final_script": final_state["script"],
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
+        # Persist the final script as a downloadable artifact
+        if final_state.get("script"):
+            save_final_script(job_id, final_state["script"])
     except Exception as e:
         log.error("agent_error", job_id=job_id, error=str(e))
         result = {
