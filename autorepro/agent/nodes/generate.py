@@ -2,6 +2,7 @@
 
 import ast
 import json
+import re
 from pathlib import Path
 
 from agent.state import AgentState
@@ -16,6 +17,9 @@ def _get_llm():
     if config.LLM_PROVIDER == "mock":
         from utils.mock_llm import MockLLM
         return MockLLM()
+    if config.LLM_PROVIDER == "bedrock":
+        from langchain_aws import ChatBedrockConverse
+        return ChatBedrockConverse(model=config.LLM_MODEL, temperature=0.2)
     if config.LLM_PROVIDER == "anthropic":
         from langchain_anthropic import ChatAnthropic
         return ChatAnthropic(model=config.LLM_MODEL, temperature=0.2)
@@ -30,7 +34,13 @@ def _get_llm():
 
 
 def _strip_fences(text: str) -> str:
-    """Remove markdown code fences if present."""
+    """Remove markdown code fences and extract Python code."""
+    # Try to extract from ```python ... ``` blocks first
+    fence_pattern = re.compile(r'```(?:python)?\s*\n(.*?)\n```', re.DOTALL)
+    matches = fence_pattern.findall(text)
+    if matches:
+        return matches[-1].strip()
+    # Fallback: strip leading/trailing fences
     lines = text.strip().splitlines()
     if lines and lines[0].startswith("```"):
         lines = lines[1:]
@@ -51,6 +61,7 @@ def generate_node(state: AgentState) -> AgentState:
     prompt   = template.format(
         analysis_json=json.dumps(state["analysis"], indent=2),
         target_url=state["target_url"],
+        dom_context=state.get("dom_context", "Not available"),
         prior_failures=prior,
     )
     llm = _get_llm()

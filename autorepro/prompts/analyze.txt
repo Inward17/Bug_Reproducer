@@ -7,11 +7,23 @@ Bug report:
 Target URL:
 {target_url}
 
+CRITICAL: The goal is to REPRODUCE the bug — meaning PROVE it exists by triggering the buggy behavior.
+
+Guidelines for "success_condition":
+- It must describe what you OBSERVE ON THE PAGE when the bug IS HAPPENING.
+- Examples of CORRECT success_conditions for different bug types:
+  * "Login always fails" → "An error message containing 'Invalid' or 'incorrect' appears on the page after submitting valid credentials"
+  * "Button does nothing when clicked" → "After clicking the button, the page state does not change (no new elements, no navigation, no loading indicator)"
+  * "Page shows 404 error" → "The page displays a 404 status or 'not found' text"
+  * "Form submits but data is lost" → "After submitting the form and refreshing, the previously entered data is not displayed"
+  * "Wrong price displayed" → "The price shown on the page does not match the expected value"
+- WRONG: "user is redirected to dashboard" (that's what happens when bug is FIXED, not present)
+
 Return this exact JSON structure:
 {{
-  "inferred_steps":    ["ordered list of steps a human would perform in a browser"],
-  "target_elements":   ["CSS selectors or XPath for key UI elements — prefer CSS"],
-  "expected_behavior": "what should happen when the bug is NOT present",
-  "success_condition": "exact, binary, observable condition that proves the bug IS reproduced",
+  "inferred_steps":    ["ordered list of steps a human would perform in a browser to trigger the bug"],
+  "target_elements":   ["CSS selectors for key UI elements — use: input[name='...'], button[type='submit'], #id, .class"],
+  "expected_behavior": "what SHOULD happen when the bug is NOT present",
+  "success_condition": "DOM-observable condition proving the bug IS present (error text, wrong element, missing redirect, etc.)",
   "risk_factors":      ["potential issues: timing, auth, dynamic content, etc."]
 }}

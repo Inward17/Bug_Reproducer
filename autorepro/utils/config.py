@@ -1,6 +1,10 @@
-"""Central configuration — all settings read from environment variables with defaults."""
+"""Central configuration — all settings read from .env file and environment variables."""
 
 import os
+from dotenv import load_dotenv
+
+# Load .env file (does NOT override existing env vars, so CLI still works as override)
+load_dotenv()
 
 LLM_PROVIDER: str            = os.getenv("LLM_PROVIDER", "ollama")
 LLM_MODEL: str               = os.getenv("LLM_MODEL", "qwen2.5-coder:3b")
@@ -11,3 +15,4 @@ SANDBOX_IMAGE: str           = os.getenv("SANDBOX_IMAGE", "autorepro-sandbox:lat
 DATA_DIR: str                = os.getenv("DATA_DIR", "./data")
 LOG_LEVEL: str               = os.getenv("LOG_LEVEL", "INFO")
 DEMO_MODE: bool              = os.getenv("DEMO_MODE", "").lower() in ("1", "true", "yes")
+

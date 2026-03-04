@@ -15,6 +15,9 @@ def _get_llm():
     if config.LLM_PROVIDER == "mock":
         from utils.mock_llm import MockLLM
         return MockLLM()
+    if config.LLM_PROVIDER == "bedrock":
+        from langchain_aws import ChatBedrockConverse
+        return ChatBedrockConverse(model=config.LLM_MODEL, temperature=0)
     if config.LLM_PROVIDER == "anthropic":
         from langchain_anthropic import ChatAnthropic
         return ChatAnthropic(model=config.LLM_MODEL, temperature=0)

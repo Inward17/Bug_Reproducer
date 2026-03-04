@@ -6,11 +6,12 @@ from enum import Enum
 
 class FailureType(str, Enum):
     """Classification of script execution failures."""
-    ELEMENT_NOT_FOUND = "ElementNotFound"
-    TIMEOUT           = "Timeout"
-    ASSERTION_ERROR   = "AssertionError"
-    NETWORK_ERROR     = "NetworkError"
-    UNKNOWN           = "Unknown"
+    ELEMENT_NOT_FOUND    = "ElementNotFound"
+    TIMEOUT              = "Timeout"
+    ASSERTION_ERROR      = "AssertionError"
+    NETWORK_ERROR        = "NetworkError"
+    WRONG_VERIFICATION   = "WrongVerification"
+    UNKNOWN              = "Unknown"
 
 
 class AgentState(TypedDict):
@@ -21,6 +22,7 @@ class AgentState(TypedDict):
     attempt_count:    int
     max_attempts:     int
     analysis:         dict
+    dom_context:      str
     script:           str
     execution_result: dict
     success:          bool

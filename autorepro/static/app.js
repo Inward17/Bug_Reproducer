@@ -210,21 +210,29 @@ function renderResult(data) {
         logsViewer.style.display = 'none';
     }
 
-    // Screenshots
+    // Proof of Execution (Screenshots)
     const screenshotsSection = document.getElementById('screenshotsSection');
     const grid = document.getElementById('screenshotsGrid');
     grid.innerHTML = '';
     if (data.screenshot_urls && data.screenshot_urls.length > 0) {
-        data.screenshot_urls.forEach((url) => {
+        // Sort by filename to ensure step order
+        const sorted = [...data.screenshot_urls].sort();
+        sorted.forEach((url, idx) => {
+            const filename = url.split('/').pop();
+            const label = formatScreenshotLabel(filename, idx + 1);
             const card = document.createElement('div');
             card.className = 'screenshot-card';
             card.onclick = () => openLightbox(url);
             card.innerHTML = `
-        <img src="${url}" alt="Failure screenshot" loading="lazy" />
-        <div class="caption">${url.split('/').pop()}</div>
+        <div class="screenshot-step-num">${idx + 1}</div>
+        <img src="${url}" alt="${label}" loading="lazy" />
+        <div class="caption">${label}</div>
       `;
             grid.appendChild(card);
         });
+        // Update subtitle with count
+        document.getElementById('proofSubtitle').textContent =
+            `${sorted.length} screenshot${sorted.length > 1 ? 's' : ''} captured from the real browser session inside the Docker sandbox.`;
         screenshotsSection.style.display = '';
     } else {
         screenshotsSection.style.display = 'none';
@@ -386,4 +394,20 @@ function shakeElement(el) {
         el.style.borderColor = '';
         el.style.animation = '';
     }, 1000);
+}
+
+function formatScreenshotLabel(filename, fallbackIdx) {
+    // Convert: step_1_page_loaded.png → "Page Loaded"
+    // Convert: failure_1709511234.png → "Failure"
+    const base = filename.replace(/\.png$/i, '');
+    if (base.startsWith('step_')) {
+        const parts = base.replace(/^step_\d+_?/, '').replace(/_/g, ' ').trim();
+        return parts.length > 0
+            ? parts.charAt(0).toUpperCase() + parts.slice(1)
+            : `Step ${fallbackIdx}`;
+    }
+    if (base.startsWith('failure')) {
+        return 'Error Screenshot';
+    }
+    return base.replace(/_/g, ' ');
 }

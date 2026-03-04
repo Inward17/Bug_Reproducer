@@ -26,6 +26,7 @@ def run_agent(bug_report: str, target_url: str, job_id: str | None = None) -> di
         "attempt_count": 0,
         "max_attempts": config.MAX_ATTEMPTS,
         "analysis": {},
+        "dom_context": "",
         "script": "",
         "execution_result": {},
         "success": False,

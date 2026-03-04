@@ -24,9 +24,15 @@ def evaluate_node(state: AgentState) -> AgentState:
             failure_type = FailureType.ASSERTION_ERROR
         elif "ConnectionRefused" in stdout or re.search(r'\b5\d{2}\b', stdout):
             failure_type = FailureType.NETWORK_ERROR
+        elif result.get("exit_code", -1) == 0:
+            # Script ran successfully but didn't print REPRODUCED
+            failure_type = FailureType.WRONG_VERIFICATION
+            result = {**result, "error_type": failure_type.value,
+                      "error_message": f"Script exited successfully but did not print REPRODUCED. stdout was: {stdout.strip()[-500:]}"}
         else:
             failure_type = FailureType.UNKNOWN
-        result = {**result, "error_type": failure_type.value}
+        if "error_type" not in result or result["error_type"] is None:
+            result = {**result, "error_type": failure_type.value}
 
     log.info("evaluate_complete", job_id=state["job_id"], success=success, attempt=state["attempt_count"])
     return {**state, "success": success, "execution_result": result}

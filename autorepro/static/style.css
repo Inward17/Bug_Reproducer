@@ -475,7 +475,14 @@ body::before {
   opacity: 1;
 }
 
-/* ── Screenshots ───────────────────────────────────────── */
+/* ── Proof of Execution / Screenshots ──────────────────── */
+.proof-subtitle {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  margin-top: -12px;
+}
+
 .screenshots-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
@@ -484,16 +491,37 @@ body::before {
 }
 
 .screenshot-card {
+  position: relative;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   overflow: hidden;
-  transition: transform var(--transition-fast), border-color var(--transition-fast);
+  transition: transform var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
   cursor: pointer;
+  background: var(--bg-secondary);
 }
 
 .screenshot-card:hover {
-  transform: scale(1.02);
-  border-color: var(--border-glow);
+  transform: scale(1.03);
+  border-color: var(--accent-primary);
+  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.2);
+}
+
+.screenshot-step-num {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 28px;
+  height: 28px;
+  background: var(--gradient-primary);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  z-index: 2;
 }
 
 .screenshot-card img {
@@ -503,10 +531,12 @@ body::before {
 }
 
 .screenshot-card .caption {
-  padding: 8px 12px;
-  font-size: 0.75rem;
-  color: var(--text-muted);
+  padding: 10px 12px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-secondary);
   background: var(--bg-secondary);
+  border-top: 1px solid var(--border-subtle);
 }
 
 /* ── Logs Viewer ───────────────────────────────────────── */

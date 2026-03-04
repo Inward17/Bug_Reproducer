@@ -140,14 +140,14 @@ LOGIN_PAGE = """<!DOCTYPE html>
 @app.route("/login")
 def login():
     """Render the login form."""
-    return LOGIN_PAGE.format(error_html="")
+    return LOGIN_PAGE.replace("{error_html}", "")
 
 
 @app.route("/login", methods=["POST"])
 def login_post():
     """Always return 'Invalid credentials' — simulates the bug."""
     error_html = '<div id="error" class="error-box">Invalid credentials</div>'
-    return LOGIN_PAGE.format(error_html=error_html)
+    return LOGIN_PAGE.replace("{error_html}", error_html)
 
 
 if __name__ == "__main__":

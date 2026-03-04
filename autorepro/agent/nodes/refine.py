@@ -2,6 +2,7 @@
 
 import ast
 import json
+import re
 from pathlib import Path
 
 from agent.state import AgentState
@@ -16,6 +17,9 @@ def _get_llm():
     if config.LLM_PROVIDER == "mock":
         from utils.mock_llm import MockLLM
         return MockLLM()
+    if config.LLM_PROVIDER == "bedrock":
+        from langchain_aws import ChatBedrockConverse
+        return ChatBedrockConverse(model=config.LLM_MODEL, temperature=0.3)
     if config.LLM_PROVIDER == "anthropic":
         from langchain_anthropic import ChatAnthropic
         return ChatAnthropic(model=config.LLM_MODEL, temperature=0.3)
@@ -29,31 +33,37 @@ def _get_llm():
     return ChatOpenAI(model=config.LLM_MODEL, temperature=0.3)
 
 
-def _strip_fences(text: str) -> str:
-    """Remove markdown code fences if present."""
-    lines = text.strip().splitlines()
-    if lines and lines[0].startswith("```"):
-        lines = lines[1:]
-    if lines and lines[-1].startswith("```"):
-        lines = lines[:-1]
-    return "\n".join(lines)
-
-
 def _extract_script(content: str) -> tuple[str, str]:
     """Separate LLM explanation text from the Python script.
 
+    The LLM often returns markdown like:
+        ### Explanation\n...\n```python\n<code>\n```
+    We extract the code from within the fences.
     Returns (refinement_note, script_code).
     """
+    # Strategy 1: Extract code from ```python ... ``` fences
+    fence_pattern = re.compile(r'```(?:python)?\s*\n(.*?)\n```', re.DOTALL)
+    matches = fence_pattern.findall(content)
+    if matches:
+        # Use the last (most likely corrected) code block
+        script = matches[-1].strip()
+        # Everything before the first fence is the note
+        first_fence = content.find('```')
+        note = content[:first_fence].strip() if first_fence > 0 else content[:200]
+        return note, script
+
+    # Strategy 2: Look for lines starting with Python keywords
     lines = content.strip().splitlines()
-    python_start_keywords = ('import ', 'from ', 'def ', 'class ', 'try:', '#!', '#', 'driver')
+    python_start_keywords = ('import ', 'from ', 'def ', 'class ', 'try:', 'driver')
     for i, line in enumerate(lines):
         stripped = line.strip()
         if stripped and any(stripped.startswith(kw) for kw in python_start_keywords):
             note = " ".join(lines[:i]).strip() if i > 0 else ""
             script = "\n".join(lines[i:])
-            return note or content[:200], _strip_fences(script)
+            return note or content[:200], script
+
     # Fallback: treat entire content as script
-    return content[:200], _strip_fences(content)
+    return content[:200], content.strip()
 
 
 def refine_node(state: AgentState) -> AgentState:
@@ -65,9 +75,11 @@ def refine_node(state: AgentState) -> AgentState:
     project_root = Path(__file__).resolve().parent.parent.parent
     template = (project_root / "prompts" / "refine.txt").read_text()
     prompt   = template.format(
+        bug_report=state["bug_report"],
         previous_script=state["script"],
         failure_json=json.dumps(state["execution_result"], indent=2),
         history_summary=history_summary,
+        dom_context=state.get("dom_context", "Not available"),
     )
     llm      = _get_llm()
     response = llm.invoke(prompt)

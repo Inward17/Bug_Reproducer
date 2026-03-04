@@ -48,6 +48,7 @@ def run(script_path: str, job_id: str) -> dict:
             mem_limit=f"{config.SANDBOX_MEMORY_MB}m",
             nano_cpus=1_000_000_000,
             network_mode="bridge",
+            extra_hosts={"host.docker.internal": "host-gateway"},
             user="1000",
             detach=True,
             auto_remove=False,
