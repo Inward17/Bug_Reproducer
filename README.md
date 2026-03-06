@@ -118,64 +118,66 @@ Not all pipeline steps consume LLM API credits:
 ## Project Structure
 
 ```
-autorepro/
-├── agent/                        # LangGraph agent (core logic)
-│   ├── __init__.py
-│   ├── graph.py                  # LangGraph state machine wiring & conditional edges
-│   ├── orchestrator.py           # Public entrypoint — runs full agent loop & persists results
-│   ├── state.py                  # AgentState TypedDict & FailureType enum
-│   └── nodes/                    # Individual pipeline stages
-│       ├── analyze.py            # Node 1: LLM bug report → structured JSON analysis
-│       ├── inspect.py            # Node 2: HTTP fetch → DOM element extraction (NEW)
-│       ├── generate.py           # Node 3: LLM analysis + DOM context → Selenium script
-│       ├── execute.py            # Node 4: Write script to disk → run in Docker sandbox
-│       ├── evaluate.py           # Node 5: Deterministic success/failure classifier
-│       └── refine.py             # Node 6: LLM rewrites script using error feedback + DOM
+Bug_Reproducer/                   # Repository root
+├── Dockerfile                    # API container image (Python 3.11 + uvicorn)
+├── docker-compose.prod.yml       # Production Docker Compose (API + sandbox build)
+├── env.production.template       # Template for production .env.production
+├── setup.sh                      # One-command EC2 setup script
 │
-├── api/                          # FastAPI REST application
-│   ├── main.py                   # App factory, startup checks, static file serving
-│   ├── routes.py                 # API endpoint handlers (reproduce, result, jobs, health)
-│   └── schemas.py                # Pydantic request/response models
-│
-├── prompts/                      # LLM prompt templates (plain text with {placeholders})
-│   ├── analyze.txt               # Bug report → structured analysis prompt
-│   ├── generate.txt              # Analysis + DOM context → Selenium script prompt
-│   └── refine.txt                # Failed script + DOM context → corrected script prompt
-│
-├── sandbox/                      # Docker sandbox execution engine
-│   ├── Dockerfile                # Chromium + chromedriver + Selenium image definition
-│   ├── runner.py                 # Container lifecycle: create, run, collect logs, cleanup
-│   ├── security.py               # AST-based static analysis — blocks dangerous code
-│   └── feedback_parser.py        # Normalizes raw Docker logs → structured ExecutionResult
-│
-├── static/                       # Web UI (served by FastAPI)
-│   ├── index.html                # Main dashboard page with Proof of Execution timeline
-│   ├── style.css                 # Styling (glassmorphism, gradients, dark theme)
-│   └── app.js                    # Frontend logic (job submission, polling, result display)
-│
-├── storage/                      # Data persistence layer
-│   ├── jobs.py                   # JSON file-based job store (save/load/list)
-│   └── artifacts.py              # Script & screenshot artifact management
-│
-├── tests/                        # Test suite
-│   ├── demo_server.py            # Flask app simulating a buggy login page (ShopEasy)
-│   └── test_bug_fixes.py         # Pytest suite for agent nodes & pipeline
-│
-├── utils/                        # Shared utilities
-│   ├── config.py                 # Central configuration (loads .env + env vars with defaults)
-│   ├── logger.py                 # structlog configuration
-│   ├── id_generator.py           # UUID-based job ID generator
-│   └── mock_llm.py               # Mock LLM for testing without API calls
-│
-├── data/                         # Runtime data (gitignored)
-│   ├── jobs/                     # Job JSON files (one per reproduction attempt)
-│   └── artifacts/                # Generated scripts & screenshots per job
-│
-├── .env                          # API keys & config (gitignored — create from .env.example)
-├── .env.example                  # Template showing all configurable variables
-├── docker-compose.yml            # Optional Docker Compose for containerized deployment
-├── requirements.txt              # Python dependencies
-└── venv/                         # Python virtual environment (gitignored)
+└── autorepro/                    # Python application
+    ├── agent/                    # LangGraph agent (core logic)
+    │   ├── graph.py              # State machine wiring & conditional edges
+    │   ├── orchestrator.py       # Public entrypoint — runs full agent loop
+    │   ├── state.py              # AgentState TypedDict & FailureType enum
+    │   └── nodes/                # Individual pipeline stages
+    │       ├── analyze.py        # Node 1: LLM bug report → structured JSON
+    │       ├── inspect.py        # Node 2: HTTP fetch → DOM element extraction
+    │       ├── generate.py       # Node 3: LLM → Selenium script
+    │       ├── execute.py        # Node 4: Run script in Docker sandbox
+    │       ├── evaluate.py       # Node 5: Deterministic success/failure classifier
+    │       └── refine.py         # Node 6: LLM rewrites script on failure
+    │
+    ├── api/                      # FastAPI REST application
+    │   ├── main.py               # App factory, CORS, static file serving
+    │   ├── routes.py             # Endpoint handlers
+    │   └── schemas.py            # Pydantic request/response models
+    │
+    ├── prompts/                  # LLM prompt templates
+    │   ├── analyze.txt
+    │   ├── generate.txt
+    │   └── refine.txt
+    │
+    ├── sandbox/                  # Docker sandbox engine
+    │   ├── Dockerfile            # Chromium + chromedriver + Selenium image
+    │   ├── runner.py             # Container lifecycle management
+    │   ├── security.py           # AST-based static analysis
+    │   └── feedback_parser.py    # Normalises Docker logs → ExecutionResult
+    │
+    ├── static/                   # Web UI (served by FastAPI)
+    │   ├── index.html
+    │   ├── style.css
+    │   └── app.js
+    │
+    ├── storage/
+    │   ├── jobs.py               # JSON file-based job store
+    │   └── artifacts.py          # Script & screenshot management
+    │
+    ├── tests/
+    │   ├── demo_server.py        # Buggy login demo app (Flask)
+    │   └── test_bug_fixes.py     # Pytest suite
+    │
+    ├── utils/
+    │   ├── config.py             # Central config (reads .env)
+    │   ├── logger.py             # structlog setup
+    │   ├── id_generator.py       # UUID job ID generator
+    │   └── mock_llm.py           # Mock LLM for offline testing
+    │
+    ├── data/                     # Runtime data (gitignored)
+    │   ├── jobs/
+    │   └── artifacts/
+    │
+    ├── .env                      # Local config (gitignored)
+    └── requirements.txt
 ```
 
 ---
@@ -191,46 +193,59 @@ autorepro/
 ### Step 1: Clone & Install Dependencies
 
 ```bash
-cd autorepro
+git clone https://github.com/Inward17/Bug_Reproducer.git
+cd Bug_Reproducer/autorepro
+```
 
-# Create and activate virtual environment
+**Create and activate a virtual environment:**
+
+```bash
 python -m venv venv
+```
 
-# Windows:
+```bash
+# Windows (PowerShell)
 venv\Scripts\activate
 
-# macOS/Linux:
+# macOS / Linux
 source venv/bin/activate
+```
 
-# Install dependencies
+```bash
 pip install -r requirements.txt
 ```
 
 ### Step 2: Build the Docker Sandbox Image
 
 ```bash
-docker build -t autorepro-sandbox:latest ./sandbox
+# Run from inside autorepro/
+docker build -t autorepro-sandbox:latest .\sandbox
 ```
 
-> This creates a slim Python 3.11 image with headless Chromium + chromedriver + Selenium. The sandbox runs generated scripts in an isolated container with memory limits (512MB) and a non-root user (UID 1000).
+> Creates a slim Python 3.11 image with headless Chromium + chromedriver + Selenium. Scripts run in an isolated container with 512MB memory limit and a non-root user (UID 1000).
 
 ### Step 3: Configure Your LLM Provider
 
-Create a `.env` file in the `autorepro/` directory (copy from `.env.example` if available):
+Create a `.env` file inside `autorepro/`:
 
 ```bash
-cp .env.example .env    # or manually create .env
+# Windows
+copy NUL .env
+
+# macOS / Linux
+touch .env
 ```
 
-Then edit `.env` with your chosen provider (see below).
+Then paste your chosen provider config (see **LLM Provider Configuration** section below).
 
 ### Step 4: Start the Application
 
 ```bash
-uvicorn api.main:app --port 8000
+# From inside autorepro/ with venv active
+python -m uvicorn api.main:app --port 8000
 ```
 
-> No need to pass environment variables in the command — everything is read from `.env` automatically.
+> Everything is read from `.env` automatically — no CLI env vars needed.
 
 ### Step 5: Open the Web UI
 
@@ -463,7 +478,10 @@ Then in the Web UI at **http://localhost:8000**, submit:
 ### Automated Tests
 
 ```bash
-# Run with mock LLM (no API keys needed)
+# Windows (PowerShell) — set env var inline
+$env:LLM_PROVIDER="mock"; python -m pytest tests/ -v
+
+# macOS / Linux
 LLM_PROVIDER=mock pytest tests/ -v
 ```
 
@@ -517,6 +535,61 @@ curl -X POST http://localhost:8000/reproduce \
 
 # Check results
 curl http://localhost:8000/result/1f2e8c74-...
+```
+
+---
+
+## AWS EC2 Deployment
+
+### One-Command Setup
+
+The repo includes a fully automated setup script for Ubuntu 24.04 EC2 instances.
+
+**Prerequisites on EC2:**
+- Ubuntu 24.04 LTS
+- Instance type: `t3.medium` or larger (2 vCPU, 4GB RAM recommended)
+- Security group: inbound TCP **8000** open (and **22** for SSH)
+
+**Steps:**
+
+```bash
+# 1. SSH into your EC2 instance
+ssh -i your-key.pem ubuntu@ec2-3-239-28-71.compute-1.amazonaws.com
+
+# 2. Download and run the setup script
+curl -O https://raw.githubusercontent.com/Inward17/Bug_Reproducer/main/setup.sh
+bash setup.sh
+```
+
+The script will:
+1. Install Docker + Docker Compose
+2. Clone this repo
+3. Prompt you to fill in `.env.production` (your API keys)
+4. Build the API + sandbox Docker images
+5. Start the app with `docker compose`
+
+**Your app will be live at:**  
+`http://ec2-3-239-28-71.compute-1.amazonaws.com:8000`
+
+### Production Environment Variables
+
+Copy `env.production.template` to `.env.production` and fill in your keys.  
+See the **Environment Variables** section above for the full list.
+
+### Useful Production Commands
+
+```bash
+# View live logs
+docker compose -f docker-compose.prod.yml logs -f
+
+# Restart the app
+docker compose -f docker-compose.prod.yml restart
+
+# Stop the app
+docker compose -f docker-compose.prod.yml down
+
+# Update to latest code
+git pull && docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 ---
