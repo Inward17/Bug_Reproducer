@@ -6,17 +6,19 @@ An AI-powered debugging assistant that converts natural-language bug reports int
 
 ## Overview
 
-AutoRepro accepts a bug report (e.g., *"Login always shows Invalid credentials even with correct username and password"*) and autonomously **generates → executes → evaluates → refines** a Selenium browser-automation script until the bug is reliably reproduced — or the maximum number of attempts is exhausted.
+AutoRepro accepts a bug report (e.g., *"Login always shows Invalid credentials even with correct username and password"*) and autonomously **analyzes → inspects DOM → generates → executes → evaluates → refines** a Selenium browser-automation script until the bug is reliably reproduced — or the maximum number of attempts is exhausted.
 
 ### Core Features
 
-- 🧠 **Multi-LLM support** — Ollama (local), Anthropic Claude, OpenAI GPT, Google Gemini
+- 🧠 **Multi-LLM support** — AWS Bedrock (Claude), Google Gemini (free), Anthropic Claude, OpenAI GPT, Ollama (local)
+- 🔍 **DOM Inspection** — Fetches real page HTML and extracts interactive elements, giving the LLM actual CSS selectors instead of guessing
 - 🔄 **Autonomous self-refinement loop** — up to 5 attempts with intelligent error diagnosis
 - 🐳 **Isolated Docker sandboxes** — Chromium + Selenium in memory-limited containers
 - 🌐 **Web UI dashboard** — submit bug reports, view results, browse execution logs & screenshots
-- 📸 **Screenshot capture** — automatic failure screenshots for debugging
+- 📸 **Proof of Execution Timeline** — step-by-step screenshot evidence captured from real browser sessions
 - 🔒 **AST-based security scanning** — blocks dangerous imports/builtins before execution
 - 📁 **Artifact API** — download generated scripts & screenshots via REST
+- 🔐 **`.env` configuration** — API keys stored securely, never exposed in terminal commands
 
 ---
 
@@ -25,21 +27,21 @@ AutoRepro accepts a bug report (e.g., *"Login always shows Invalid credentials e
 ### Pipeline Flow
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                        AutoRepro Agent Loop                         │
-│                                                                      │
-│   Bug Report ──▶ ANALYZE ──▶ GENERATE ──▶ EXECUTE ──▶ EVALUATE      │
-│                   (LLM)       (LLM)      (Docker)    (Deterministic) │
-│                                                          │           │
-│                                               ┌──────────┴────────┐  │
-│                                               ▼                   ▼  │
-│                                          ✅ Success          ❌ REFINE│
-│                                          (save result)        (LLM)  │
-│                                                               │      │
-│                                                               ▼      │
-│                                                          EXECUTE     │
-│                                                          (retry)     │
-└──────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────┐
+│                         AutoRepro Agent Loop                              │
+│                                                                           │
+│   Bug Report ──▶ ANALYZE ──▶ INSPECT ──▶ GENERATE ──▶ EXECUTE ──▶ EVAL  │
+│                   (LLM)      (HTTP)      (LLM)      (Docker)    (Logic)  │
+│                                                                   │       │
+│                                                        ┌──────────┴─────┐ │
+│                                                        ▼                ▼ │
+│                                                   ✅ Success       ❌ REFINE│
+│                                                   (save result)     (LLM)│
+│                                                                      │   │
+│                                                                      ▼   │
+│                                                                  EXECUTE │
+│                                                                  (retry) │
+└───────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Node Descriptions
@@ -47,24 +49,27 @@ AutoRepro accepts a bug report (e.g., *"Login always shows Invalid credentials e
 | Node | Type | Description |
 |------|------|-------------|
 | **Analyze** | LLM | Parses bug report into structured JSON: inferred steps, target CSS selectors, success condition, risk factors |
-| **Generate** | LLM | Writes a complete Python/Selenium script from the analysis. Uses verification pattern: trigger bug → check DOM for error evidence → print `REPRODUCED` |
+| **Inspect** | HTTP | Fetches the target URL with `requests` + `BeautifulSoup`, extracts all interactive elements (`<a>`, `<button>`, `<input>`, `<form>`, etc.) with their real IDs, classes, text content, and attributes. Passes this DOM context to the LLM — **no API credits consumed** |
+| **Generate** | LLM | Writes a complete Python/Selenium script using real DOM selectors. Includes JS-based page reload detection, complete imports, and screenshot evidence capture |
 | **Execute** | Docker | Writes script to disk, runs it inside an isolated Docker container with headless Chromium. Captures stdout, stderr, exit code, screenshots |
 | **Evaluate** | Deterministic | Checks if `REPRODUCED` appears in stdout. Classifies failures: `Timeout`, `ElementNotFound`, `WrongVerification`, `NetworkError`, `Unknown` |
-| **Refine** | LLM | Receives the original bug report, failed script, execution result, and full attempt history. Diagnoses the issue and rewrites the script |
+| **Refine** | LLM | Receives the original bug report, failed script, execution result, DOM context, and full attempt history. Diagnoses the issue and rewrites the script |
 
 ### State Machine (LangGraph)
 
 ```python
 graph = StateGraph(AgentState)
 graph.add_node("analyze",  analyze_node)
+graph.add_node("inspect",  inspect_node)   # DOM inspection (NEW)
 graph.add_node("generate", generate_node)
 graph.add_node("execute",  execute_node)
 graph.add_node("evaluate", evaluate_node)
 graph.add_node("refine",   refine_node)
 
-# Flow: analyze → generate → execute → evaluate → (success | refine → execute)
+# Flow: analyze → inspect → generate → execute → evaluate → (success | refine → execute)
 graph.set_entry_point("analyze")
-graph.add_edge("analyze",  "generate")
+graph.add_edge("analyze",  "inspect")
+graph.add_edge("inspect",  "generate")
 graph.add_edge("generate", "execute")
 graph.add_edge("execute",  "evaluate")
 graph.add_conditional_edges("evaluate", route_after_evaluate, {
@@ -75,6 +80,23 @@ graph.add_conditional_edges("evaluate", route_after_evaluate, {
 graph.add_edge("refine", "execute")
 ```
 
+### LLM API Usage Per Job
+
+Not all pipeline steps consume LLM API credits:
+
+| Step | Uses LLM? | Cost |
+|------|-----------|------|
+| Analyze | ✅ Yes | ~500 input + 200 output tokens |
+| Inspect | ❌ No (HTTP fetch) | **Free** |
+| Generate | ✅ Yes | ~2000 input + 500 output tokens |
+| Execute | ❌ No (Docker) | **Free** |
+| Evaluate | ❌ No (string check) | **Free** |
+| Refine | ✅ Yes (per retry) | ~2500 input + 500 output tokens |
+| Screenshots | ❌ No (Selenium) | **Free** |
+
+**Best case** (succeeds on attempt 1): 2 LLM calls, ~3,200 tokens  
+**Worst case** (all 5 attempts fail): 6 LLM calls, ~15,200 tokens
+
 ---
 
 ## Tech Stack
@@ -82,8 +104,8 @@ graph.add_edge("refine", "execute")
 | Component | Technology | Details |
 |-----------|------------|---------|
 | Agent Framework | **LangGraph** | State machine with conditional edges for the refine loop |
-| LLM Providers | **Ollama** (default), Anthropic, OpenAI, Google Gemini | Configurable via env vars |
-| Recommended Model | `qwen2.5-coder:7b` | Via Ollama — good balance of quality and speed |
+| LLM Providers | **AWS Bedrock** (recommended), Google Gemini (free), Anthropic, OpenAI, Ollama | Configurable via `.env` |
+| DOM Inspector | **BeautifulSoup** + requests | Real element extraction — no LLM credits used |
 | Backend API | **FastAPI** + Uvicorn | Async endpoints, background task execution |
 | Sandbox | **Docker** | Headless Chromium + Selenium 4.18 in isolated containers |
 | Security | AST-based static analysis | Blocks `os`, `subprocess`, `socket`, `eval`, `exec` etc. |
@@ -104,10 +126,11 @@ autorepro/
 │   ├── state.py                  # AgentState TypedDict & FailureType enum
 │   └── nodes/                    # Individual pipeline stages
 │       ├── analyze.py            # Node 1: LLM bug report → structured JSON analysis
-│       ├── generate.py           # Node 2: LLM analysis → Python/Selenium script
-│       ├── execute.py            # Node 3: Write script to disk → run in Docker sandbox
-│       ├── evaluate.py           # Node 4: Deterministic success/failure classifier
-│       └── refine.py             # Node 5: LLM rewrites script using error feedback
+│       ├── inspect.py            # Node 2: HTTP fetch → DOM element extraction (NEW)
+│       ├── generate.py           # Node 3: LLM analysis + DOM context → Selenium script
+│       ├── execute.py            # Node 4: Write script to disk → run in Docker sandbox
+│       ├── evaluate.py           # Node 5: Deterministic success/failure classifier
+│       └── refine.py             # Node 6: LLM rewrites script using error feedback + DOM
 │
 ├── api/                          # FastAPI REST application
 │   ├── main.py                   # App factory, startup checks, static file serving
@@ -116,8 +139,8 @@ autorepro/
 │
 ├── prompts/                      # LLM prompt templates (plain text with {placeholders})
 │   ├── analyze.txt               # Bug report → structured analysis prompt
-│   ├── generate.txt              # Analysis → Selenium script prompt (with verification pattern)
-│   └── refine.txt                # Failed script → corrected script prompt (with diagnosis guide)
+│   ├── generate.txt              # Analysis + DOM context → Selenium script prompt
+│   └── refine.txt                # Failed script + DOM context → corrected script prompt
 │
 ├── sandbox/                      # Docker sandbox execution engine
 │   ├── Dockerfile                # Chromium + chromedriver + Selenium image definition
@@ -126,7 +149,7 @@ autorepro/
 │   └── feedback_parser.py        # Normalizes raw Docker logs → structured ExecutionResult
 │
 ├── static/                       # Web UI (served by FastAPI)
-│   ├── index.html                # Main dashboard page
+│   ├── index.html                # Main dashboard page with Proof of Execution timeline
 │   ├── style.css                 # Styling (glassmorphism, gradients, dark theme)
 │   └── app.js                    # Frontend logic (job submission, polling, result display)
 │
@@ -139,7 +162,7 @@ autorepro/
 │   └── test_bug_fixes.py         # Pytest suite for agent nodes & pipeline
 │
 ├── utils/                        # Shared utilities
-│   ├── config.py                 # Central configuration (all env vars with defaults)
+│   ├── config.py                 # Central configuration (loads .env + env vars with defaults)
 │   ├── logger.py                 # structlog configuration
 │   ├── id_generator.py           # UUID-based job ID generator
 │   └── mock_llm.py               # Mock LLM for testing without API calls
@@ -148,9 +171,11 @@ autorepro/
 │   ├── jobs/                     # Job JSON files (one per reproduction attempt)
 │   └── artifacts/                # Generated scripts & screenshots per job
 │
+├── .env                          # API keys & config (gitignored — create from .env.example)
+├── .env.example                  # Template showing all configurable variables
 ├── docker-compose.yml            # Optional Docker Compose for containerized deployment
-├── requirements.txt              # Python dependencies (pinned versions)
-└── venv/                         # Python virtual environment
+├── requirements.txt              # Python dependencies
+└── venv/                         # Python virtual environment (gitignored)
 ```
 
 ---
@@ -161,28 +186,14 @@ autorepro/
 
 - **Python 3.11+**
 - **Docker Desktop** (daemon must be running)
-- **Ollama** installed ([ollama.com](https://ollama.com)) — for local LLM inference
+- **An LLM provider** — one of the options below
 
-### 1. Pull the LLM model
-
-```bash
-ollama pull qwen2.5-coder:7b
-```
-
-> **Note:** The 7B model needs ~6GB GPU VRAM. For lower-end GPUs, use `qwen2.5-coder:3b` instead.
-
-### 2. Build the Docker sandbox image
+### Step 1: Clone & Install Dependencies
 
 ```bash
 cd autorepro
-docker build -t autorepro-sandbox:latest ./sandbox
-```
 
-> This installs headless Chromium + chromedriver + Selenium inside a slim Python 3.11 image.
-
-### 3. Install Python dependencies
-
-```bash
+# Create and activate virtual environment
 python -m venv venv
 
 # Windows:
@@ -191,51 +202,155 @@ venv\Scripts\activate
 # macOS/Linux:
 source venv/bin/activate
 
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-### 4. Start the application
-
-```powershell
-# Windows (PowerShell)
-$env:LLM_PROVIDER="ollama"; $env:LLM_MODEL="qwen2.5-coder:7b"; uvicorn api.main:app --port 8000
-```
+### Step 2: Build the Docker Sandbox Image
 
 ```bash
-# macOS/Linux
-LLM_PROVIDER=ollama LLM_MODEL=qwen2.5-coder:7b uvicorn api.main:app --port 8000
+docker build -t autorepro-sandbox:latest ./sandbox
 ```
 
-### 5. Open the Web UI
+> This creates a slim Python 3.11 image with headless Chromium + chromedriver + Selenium. The sandbox runs generated scripts in an isolated container with memory limits (512MB) and a non-root user (UID 1000).
+
+### Step 3: Configure Your LLM Provider
+
+Create a `.env` file in the `autorepro/` directory (copy from `.env.example` if available):
+
+```bash
+cp .env.example .env    # or manually create .env
+```
+
+Then edit `.env` with your chosen provider (see below).
+
+### Step 4: Start the Application
+
+```bash
+uvicorn api.main:app --port 8000
+```
+
+> No need to pass environment variables in the command — everything is read from `.env` automatically.
+
+### Step 5: Open the Web UI
 
 Navigate to **http://localhost:8000** in your browser.
 
-### 6. Test with the demo server (optional)
-
-In a separate terminal, start the included buggy demo app:
-
-```bash
-python tests/demo_server.py
-```
-
-Then in the Web UI, submit:
-- **Bug report:** `Login always shows Invalid credentials even with correct username and password`
-- **Target URL:** `http://host.docker.internal:8080/login`
-
 ---
 
-## Alternative LLM Providers
+## LLM Provider Configuration
 
-```bash
-# Anthropic Claude
-LLM_PROVIDER=anthropic LLM_MODEL=claude-sonnet-4-20250514 ANTHROPIC_API_KEY=sk-ant-... uvicorn api.main:app --port 8000
+All configuration is done in the `.env` file. Choose **one** provider:
 
-# OpenAI GPT-4o
-LLM_PROVIDER=openai LLM_MODEL=gpt-4o OPENAI_API_KEY=sk-... uvicorn api.main:app --port 8000
+### Option A: Google Gemini (Free — Recommended for Getting Started)
 
-# Google Gemini
-LLM_PROVIDER=google LLM_MODEL=gemini-2.0-flash GOOGLE_API_KEY=... uvicorn api.main:app --port 8000
+```env
+LLM_PROVIDER=google
+LLM_MODEL=gemini-2.5-flash-lite
+GOOGLE_API_KEY=your-google-api-key
 ```
+
+**Setup:**
+1. Go to [aistudio.google.com](https://aistudio.google.com)
+2. Click **"Get API Key"** → Create key (free, no credit card)
+3. Paste the key in `.env`
+
+> **Free tier:** 1,000 requests/day, 250,000 tokens/minute. More than enough for testing.
+
+### Option B: AWS Bedrock (Claude — Recommended for Production)
+
+```env
+LLM_PROVIDER=bedrock
+LLM_MODEL=anthropic.claude-3-5-haiku-20241022-v1:0
+AWS_ACCESS_KEY_ID=AKIA...
+AWS_SECRET_ACCESS_KEY=your-secret-key
+AWS_DEFAULT_REGION=us-east-1
+```
+
+**Setup:**
+1. You need AWS IAM credentials (Access Key ID + Secret Access Key)
+2. Ensure Bedrock model access is enabled in your AWS region
+3. For Anthropic models, a one-time use case form submission is required:
+
+```python
+# Run once to submit the Anthropic use case form
+python -c "
+from dotenv import load_dotenv; load_dotenv()
+import os, boto3, json
+client = boto3.client('bedrock',
+    region_name=os.getenv('AWS_DEFAULT_REGION', 'us-east-1'),
+    aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+    aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'))
+client.put_use_case_for_model_access(formData=json.dumps({
+    'companyName': 'Your Company',
+    'companyWebsite': 'https://your-site.com',
+    'intendedUsers': '0',
+    'industryOption': 'Technology',
+    'otherIndustryOption': '',
+    'useCases': 'Automated bug reproduction testing tool'
+}))
+print('Done! Access granted immediately.')
+"
+```
+
+4. Then create the model agreement:
+
+```python
+python -c "
+from dotenv import load_dotenv; load_dotenv()
+import os, boto3
+client = boto3.client('bedrock',
+    region_name=os.getenv('AWS_DEFAULT_REGION', 'us-east-1'),
+    aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+    aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'))
+offers = client.list_foundation_model_agreement_offers(
+    modelId='anthropic.claude-3-5-haiku-20241022-v1:0')
+token = offers['offers'][0]['offerToken']
+client.create_foundation_model_agreement(
+    modelId='anthropic.claude-3-5-haiku-20241022-v1:0',
+    offerToken=token)
+print('Model agreement created!')
+"
+```
+
+> **Important:** Your AWS account must have a valid payment method configured for AWS Marketplace.
+
+**Available Bedrock models:**
+| Model ID | Description |
+|----------|-------------|
+| `anthropic.claude-3-haiku-20240307-v1:0` | Fast & cheap (~$0.006/job) |
+| `anthropic.claude-3-5-haiku-20241022-v1:0` | Smarter, still affordable (~$0.01/job) |
+| `anthropic.claude-3-5-sonnet-20241022-v2:0` | Best quality (~$0.08/job) |
+
+### Option C: Direct Anthropic API
+
+```env
+LLM_PROVIDER=anthropic
+LLM_MODEL=claude-3-haiku-20240307
+ANTHROPIC_API_KEY=sk-ant-api03-...
+```
+
+### Option D: OpenAI
+
+```env
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-4o
+OPENAI_API_KEY=sk-...
+```
+
+### Option E: Ollama (Local — No API Key Needed)
+
+```env
+LLM_PROVIDER=ollama
+LLM_MODEL=qwen2.5-coder:3b
+```
+
+**Setup:**
+1. Install Ollama from [ollama.com](https://ollama.com)
+2. Pull a model: `ollama pull qwen2.5-coder:3b`
+3. Ollama must be running before starting AutoRepro
+
+> **Note:** Local 3B models work for simple test pages but struggle with complex real-world websites. For production use, a cloud LLM provider is strongly recommended.
 
 ---
 
@@ -243,8 +358,14 @@ LLM_PROVIDER=google LLM_MODEL=gemini-2.0-flash GOOGLE_API_KEY=... uvicorn api.ma
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LLM_PROVIDER` | `ollama` | LLM provider: `ollama`, `anthropic`, `openai`, `google` |
-| `LLM_MODEL` | `qwen2.5-coder:3b` | Model name for the chosen provider |
+| `LLM_PROVIDER` | `ollama` | LLM provider: `bedrock`, `google`, `anthropic`, `openai`, `ollama` |
+| `LLM_MODEL` | `qwen2.5-coder:3b` | Model name/ID for the chosen provider |
+| `AWS_ACCESS_KEY_ID` | — | AWS credentials (for Bedrock provider) |
+| `AWS_SECRET_ACCESS_KEY` | — | AWS credentials (for Bedrock provider) |
+| `AWS_DEFAULT_REGION` | `us-east-1` | AWS region (for Bedrock provider) |
+| `GOOGLE_API_KEY` | — | API key (for Google Gemini provider) |
+| `ANTHROPIC_API_KEY` | — | API key (for Anthropic provider) |
+| `OPENAI_API_KEY` | — | API key (for OpenAI provider) |
 | `MAX_ATTEMPTS` | `5` | Maximum refinement attempts per job |
 | `SANDBOX_TIMEOUT_SECONDS` | `60` | Timeout for each Docker script execution |
 | `SANDBOX_MEMORY_MB` | `512` | Memory limit for Docker sandbox containers |
@@ -262,7 +383,7 @@ LLM_PROVIDER=google LLM_MODEL=gemini-2.0-flash GOOGLE_API_KEY=... uvicorn api.ma
 | `POST` | `/reproduce` | Submit a bug report for reproduction. Body: `{"bug_report": "...", "target_url": "..."}` |
 | `GET` | `/result/{job_id}` | Get job status, execution results, history, and script |
 | `GET` | `/result/{job_id}/script` | Download the final generated Selenium script |
-| `GET` | `/result/{job_id}/screenshot/{filename}` | View a captured failure screenshot |
+| `GET` | `/result/{job_id}/screenshot/{filename}` | View a captured screenshot |
 | `GET` | `/jobs` | List all jobs with status |
 | `GET` | `/health` | Health check (verifies Docker daemon connectivity) |
 | `GET` | `/` | Serve the Web UI |
@@ -277,17 +398,31 @@ AutoRepro's key insight: **"reproducing a bug" means proving the bug EXISTS**, n
 
 **Bug report:** *"Login always shows Invalid credentials even with correct username and password"*
 
-**What the LLM generates:**
+**What the system does:**
+1. **Analyze** — Parses the bug report into structured steps and target elements
+2. **Inspect DOM** — Fetches the login page HTML, finds the actual `<form>`, `<input>`, and `<button>` elements with their real IDs and classes
+3. **Generate** — Creates a Selenium script using the real selectors (not guessing)
+4. **Execute** — Runs the script in Docker, captures screenshots at each step
+5. **Evaluate** — Checks if `REPRODUCED` was printed
+6. **Refine** — If it failed, analyzes the error and rewrites the script (up to 5 times)
+
+**Generated script pattern:**
 ```python
 # 1. Navigate to login page
 driver.get("http://host.docker.internal:8080/login")
+driver.save_screenshot("/screenshots/step_1_page_loaded.png")
 
-# 2. Fill in credentials
+# 2. Fill in credentials (using real selectors from DOM inspection)
+username_field = driver.find_element(By.ID, "username")
 username_field.send_keys("valid_username")
+password_field = driver.find_element(By.ID, "password")
 password_field.send_keys("valid_password")
+driver.save_screenshot("/screenshots/step_2_form_filled.png")
 
 # 3. Submit the form
 login_button.click()
+time.sleep(2)
+driver.save_screenshot("/screenshots/step_3_after_submit.png")
 
 # 4. Check for the BUG (error message), NOT the happy path
 if "Invalid" in driver.page_source:
@@ -305,6 +440,32 @@ When a script fails, the evaluate node classifies the failure type to help the r
 | `WrongVerification` | Script ran OK but didn't print REPRODUCED | Fix the verification logic |
 | `NetworkError` | Target URL unreachable | Check connectivity |
 | `Unknown` | Unexpected error | General debugging |
+
+---
+
+## Testing
+
+### With the Demo Server
+
+In a separate terminal, start the included buggy demo app:
+
+```bash
+cd autorepro
+python tests/demo_server.py
+```
+
+Then in the Web UI at **http://localhost:8000**, submit:
+- **Bug report:** `Login always shows Invalid credentials even with correct username and password`
+- **Target URL:** `http://host.docker.internal:8080/login`
+
+> **Note:** `host.docker.internal` allows Docker containers to access services running on the host machine.
+
+### Automated Tests
+
+```bash
+# Run with mock LLM (no API keys needed)
+LLM_PROVIDER=mock pytest tests/ -v
+```
 
 ---
 
@@ -326,8 +487,8 @@ The system uses three carefully crafted prompt templates:
 | Prompt | Purpose | Key Design Decisions |
 |--------|---------|---------------------|
 | `analyze.txt` | Bug report → JSON | Includes 5 bug-type examples showing correct vs incorrect `success_condition` |
-| `generate.txt` | JSON → Selenium script | Provides a verification PATTERN template and emphasizes checking for error behavior |
-| `refine.txt` | Failed script → fixed script | Includes a 5-case diagnosis guide and the original bug report for context |
+| `generate.txt` | JSON + DOM context → Selenium script | Provides verification pattern, JS-based page reload detection, complete import list, and screenshot evidence rules |
+| `refine.txt` | Failed script + DOM context → fixed script | Includes a 5-case diagnosis guide, real DOM selectors, and attempt history to avoid repeating mistakes |
 
 ---
 
@@ -339,7 +500,7 @@ The system uses three carefully crafted prompt templates:
 2. Enter the bug description and target URL
 3. Click **Start Reproduction**
 4. Watch real-time progress as the agent works
-5. View the generated script, execution logs, and screenshots
+5. View the generated script, execution logs, and **Proof of Execution** screenshot timeline
 
 ### Via cURL
 
@@ -360,15 +521,17 @@ curl http://localhost:8000/result/1f2e8c74-...
 
 ---
 
-## Testing
+## Troubleshooting
 
-```bash
-# Run the test suite
-pytest tests/ -v
-
-# Run with mock LLM (no API keys needed)
-LLM_PROVIDER=mock pytest tests/ -v
-```
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| `docker_daemon_ok` not shown on startup | Docker Desktop not running | Start Docker Desktop |
+| `authentication_error: invalid x-api-key` | Wrong API key in `.env` | Check key format, no quotes or spaces |
+| `ResourceNotFoundException` on Bedrock | Anthropic use case form not submitted | Run the Python setup commands above |
+| `INVALID_PAYMENT_INSTRUMENT` on Bedrock | No payment method on AWS account | Add a credit card in AWS Billing |
+| `NameError: name 'EC' is not defined` | Using Ollama 3B model | Switch to a cloud LLM provider (Gemini free, Bedrock, etc.) |
+| `TimeoutException` in scripts | Element selector is wrong | DOM inspection should prevent this; check if the target site is accessible |
+| Screenshots not appearing | Script crashes before screenshot step | Check execution logs for errors |
 
 ---
 
