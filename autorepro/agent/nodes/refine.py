@@ -111,6 +111,7 @@ def refine_node(state: AgentState) -> AgentState:
         failure_json=_safe_val(json.dumps(state["execution_result"], indent=2)),
         history_summary=_safe_val(history_summary),
         dom_context=_safe_val(state.get("dom_context", "Not available")),
+        target_url=state["target_url"],
     )
     llm      = _get_llm()
     response = llm.invoke(prompt)
