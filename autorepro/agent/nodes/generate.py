@@ -76,6 +76,10 @@ def _fix_url(script: str, target_url: str) -> str:
     return pattern.sub(rf'\1"{target_url}"', script)
 
 
+def _safe_val(s: str) -> str:
+    """Escape { and } in dynamic content so str.format() won't misinterpret braces."""
+    return str(s).replace("{", "{{").replace("}", "}}")
+
 def generate_node(state: AgentState) -> AgentState:
     """Node 2: Generate a Python/Selenium script from the structured analysis."""
     prior = "\n".join(
@@ -86,10 +90,10 @@ def generate_node(state: AgentState) -> AgentState:
     project_root = Path(__file__).resolve().parent.parent.parent
     template = (project_root / "prompts" / "generate.txt").read_text()
     prompt   = template.format(
-        analysis_json=json.dumps(state["analysis"], indent=2),
+        analysis_json=_safe_val(json.dumps(state["analysis"], indent=2)),
         target_url=state["target_url"],
-        dom_context=state.get("dom_context", "Not available"),
-        prior_failures=prior,
+        dom_context=_safe_val(state.get("dom_context", "Not available")),
+        prior_failures=_safe_val(prior),
     )
     llm = _get_llm()
 

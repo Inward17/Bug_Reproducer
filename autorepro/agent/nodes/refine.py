@@ -93,6 +93,10 @@ def _fix_url(script: str, target_url: str) -> str:
     return pattern.sub(rf'\1"{target_url}"', script)
 
 
+def _safe_val(s: str) -> str:
+    """Escape { and } in dynamic content so str.format() won't misinterpret braces."""
+    return str(s).replace("{", "{{").replace("}", "}}")
+
 def refine_node(state: AgentState) -> AgentState:
     """Node 5: LLM rewrites the script based on failure feedback."""
     history_summary = "\n".join(
@@ -102,11 +106,11 @@ def refine_node(state: AgentState) -> AgentState:
     project_root = Path(__file__).resolve().parent.parent.parent
     template = (project_root / "prompts" / "refine.txt").read_text()
     prompt   = template.format(
-        bug_report=state["bug_report"],
-        previous_script=state["script"],
-        failure_json=json.dumps(state["execution_result"], indent=2),
-        history_summary=history_summary,
-        dom_context=state.get("dom_context", "Not available"),
+        bug_report=_safe_val(state["bug_report"]),
+        previous_script=_safe_val(state["script"]),
+        failure_json=_safe_val(json.dumps(state["execution_result"], indent=2)),
+        history_summary=_safe_val(history_summary),
+        dom_context=_safe_val(state.get("dom_context", "Not available")),
     )
     llm      = _get_llm()
     response = llm.invoke(prompt)
