@@ -42,7 +42,7 @@ langgraph
 langgraph-checkpoint
 langgraph-prebuilt
 langgraph-sdk
-langsmith==0.7.7
+langsmith
 MarkupSafe==3.0.3
 ollama==0.6.1
 openai==2.24.0
