@@ -1,39 +1,32 @@
-# ── Core LLM orchestration (langchain 0.2.x ecosystem) ──
-langchain-core>=0.2.33,<0.3
-langgraph>=0.2.0,<0.3
-langgraph-checkpoint>=2.0.0,<3
-langgraph-prebuilt>=0.2.0,<0.3
-langgraph-sdk>=0.1.0,<0.2
+# Direct application dependencies only.
+# Do not freeze transitive packages here; let pip resolve them from these top-level constraints.
 
-# ── LLM providers ──
-langchain-anthropic>=0.1.20,<0.2
-langchain-openai>=0.1.20,<0.2
-langchain-google-genai>=1.0.0,<2
-langchain-ollama>=0.1.0,<0.2
-langchain-aws>=0.1.0,<0.2
-langsmith>=0.1.100,<0.2
+# LLM orchestration
+langchain-core==0.2.43
+langgraph==0.2.60
+langchain-anthropic==0.1.23
+langchain-openai==0.1.25
+langchain-google-genai==1.0.10
+langchain-ollama==0.1.3
+langchain-aws==0.1.18
+boto3==1.34.162
 
-# ── AWS ──
-boto3>=1.34.0,<1.35
+# Web/API
+fastapi==0.133.1
+uvicorn[standard]==0.41.0
+Flask==3.1.3
 
-# ── Web framework ──
-fastapi>=0.111.0
-uvicorn[standard]>=0.29.0
-flask>=3.0.0
-
-# ── Utilities ──
+# Runtime utilities
+beautifulsoup4==4.13.3
+docker==7.1.0
+pydantic==2.12.5
+python-dotenv==1.2.1
+requests==2.32.5
 selenium==4.18.0
-docker>=7.0.0
-pydantic>=2.0.0
-structlog>=24.0.0
-python-dotenv>=1.0.0
-beautifulsoup4>=4.12.0
-requests>=2.31.0
-httpx>=0.27.0
-tenacity>=8.2.0,<9.0.0
-packaging>=22,<25
+structlog==25.5.0
+webdriver-manager==4.0.2
 
-# ── Testing ──
-pytest>=8.0.0
-pytest-mock>=3.12.0
-pytest-asyncio>=0.23.0,<1.0
+# Testing
+pytest==9.0.2
+pytest-asyncio==0.26.0
+pytest-mock==3.15.1
