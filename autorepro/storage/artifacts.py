@@ -15,5 +15,5 @@ def artifacts_dir(job_id: str) -> Path:
 def save_final_script(job_id: str, script: str) -> Path:
     """Save the final reproduction script for a job."""
     p = artifacts_dir(job_id) / "final.py"
-    p.write_text(script)
+    p.write_text(script, encoding="utf-8")
     return p

@@ -17,7 +17,7 @@ def execute_node(state: AgentState) -> AgentState:
     artifacts_dir = Path(config.DATA_DIR) / "artifacts" / state["job_id"]
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     script_path   = artifacts_dir / f"attempt_{attempt_num}.py"
-    script_path.write_text(state["script"])
+    script_path.write_text(state["script"], encoding="utf-8")
 
     try:
         result = runner.run(str(script_path), state["job_id"])

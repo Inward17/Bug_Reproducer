@@ -19,7 +19,7 @@ def save(job_id: str, data: dict) -> None:
     """Atomically write job data to disk."""
     target = _path(job_id)
     tmp    = target.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(data, indent=2, default=str))
+    tmp.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
     os.replace(tmp, target)
 
 
