@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 from agent.state import AgentState
-from utils import config
+from utils.llm import get_llm
 from utils.logger import get_logger
 
 log = get_logger(__name__)
@@ -34,23 +34,7 @@ def _extract_text(content) -> str:
 
 def _get_llm():
     """Return the configured LLM instance with moderate temperature for variation."""
-    if config.LLM_PROVIDER == "mock":
-        from utils.mock_llm import MockLLM
-        return MockLLM()
-    if config.LLM_PROVIDER == "bedrock":
-        from langchain_aws import ChatBedrockConverse
-        return ChatBedrockConverse(model=config.LLM_MODEL, temperature=0.3)
-    if config.LLM_PROVIDER == "anthropic":
-        from langchain_anthropic import ChatAnthropic
-        return ChatAnthropic(model=config.LLM_MODEL, temperature=0.3)
-    if config.LLM_PROVIDER == "google":
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        return ChatGoogleGenerativeAI(model=config.LLM_MODEL, temperature=0.3)
-    if config.LLM_PROVIDER == "ollama":
-        from langchain_ollama import ChatOllama
-        return ChatOllama(model=config.LLM_MODEL, temperature=0.3)
-    from langchain_openai import ChatOpenAI
-    return ChatOpenAI(model=config.LLM_MODEL, temperature=0.3)
+    return get_llm(temperature=0.3)
 
 
 def _extract_script(content: str) -> tuple[str, str]:
@@ -131,4 +115,3 @@ def refine_node(state: AgentState) -> AgentState:
 
     log.info("refine_complete", job_id=state["job_id"], attempt=state["attempt_count"])
     return {**state, "script": corrected_script, "history": updated_history}
-

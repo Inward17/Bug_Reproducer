@@ -6,6 +6,7 @@ or set it to 'auto' to enable the full chain.
 """
 
 from utils import config
+from utils.bedrock import make_bedrock_llm
 from utils.logger import get_logger
 
 log = get_logger(__name__)
@@ -23,8 +24,7 @@ _PROVIDERS = [
 
 
 def _make_bedrock(model: str, temperature: float):
-    from langchain_aws import ChatBedrockConverse
-    return ChatBedrockConverse(model=model, temperature=temperature)
+    return make_bedrock_llm(model, temperature)
 
 
 def _make_anthropic(model: str, temperature: float):
