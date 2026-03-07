@@ -215,6 +215,12 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+For local tests or demo-mode tooling, install the dev extras instead:
+
+```bash
+pip install -r requirements-dev.txt
+```
+
 ### Step 2: Build the Docker Sandbox Image
 
 ```bash
