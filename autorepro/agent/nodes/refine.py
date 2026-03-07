@@ -12,6 +12,26 @@ from utils.logger import get_logger
 log = get_logger(__name__)
 
 
+def _extract_text(content) -> str:
+    """Safely extract text from an LLM response's .content field.
+
+    ChatBedrockConverse returns a list of content blocks like
+    [{"type": "text", "text": "..."}], while other providers return
+    a plain string. This handles both.
+    """
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict) and "text" in block:
+                parts.append(block["text"])
+            elif isinstance(block, str):
+                parts.append(block)
+        return "\n".join(parts).strip()
+    return str(content).strip()
+
+
 def _get_llm():
     """Return the configured LLM instance with moderate temperature for variation."""
     if config.LLM_PROVIDER == "mock":
@@ -66,6 +86,13 @@ def _extract_script(content: str) -> tuple[str, str]:
     return content[:200], content.strip()
 
 
+def _fix_url(script: str, target_url: str) -> str:
+    """Ensure the script uses the exact target URL, not LLM-rewritten variants."""
+    import re
+    pattern = re.compile(r'(driver\.get\(|TARGET_URL\s*=\s*)["\']https?://(?:localhost|127\.0\.0\.1)[^"\']*["\']')
+    return pattern.sub(rf'\1"{target_url}"', script)
+
+
 def refine_node(state: AgentState) -> AgentState:
     """Node 5: LLM rewrites the script based on failure feedback."""
     history_summary = "\n".join(
@@ -83,9 +110,10 @@ def refine_node(state: AgentState) -> AgentState:
     )
     llm      = _get_llm()
     response = llm.invoke(prompt)
-    content  = response.content.strip()
+    content  = _extract_text(response.content)
 
     refinement_note, corrected_script = _extract_script(content)
+    corrected_script = _fix_url(corrected_script, state["target_url"])
 
     try:
         ast.parse(corrected_script)
@@ -98,3 +126,4 @@ def refine_node(state: AgentState) -> AgentState:
 
     log.info("refine_complete", job_id=state["job_id"], attempt=state["attempt_count"])
     return {**state, "script": corrected_script, "history": updated_history}
+

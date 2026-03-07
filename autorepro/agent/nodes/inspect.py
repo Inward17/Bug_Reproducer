@@ -1,5 +1,6 @@
 """Node 1.5 — DOM inspection: fetch target page and extract interactive elements."""
 
+import re
 import requests
 from bs4 import BeautifulSoup
 
@@ -7,6 +8,21 @@ from agent.state import AgentState
 from utils.logger import get_logger
 
 log = get_logger(__name__)
+
+
+def _host_url(url: str) -> str:
+    """Translate Docker-internal URLs to host-reachable equivalents.
+
+    The inspect node runs on the host machine (Windows/macOS), where
+    'host.docker.internal' doesn't resolve. We swap it to 'localhost'
+    so requests.get() can actually reach the target app.
+    """
+    return re.sub(
+        r'host\.docker\.internal',
+        'localhost',
+        url,
+        flags=re.IGNORECASE,
+    )
 
 # Tags that represent interactive or important elements
 INTERACTIVE_TAGS = ["a", "button", "input", "select", "textarea", "form", "label", "nav", "h1", "h2", "h3"]
@@ -85,7 +101,7 @@ def inspect_node(state: AgentState) -> AgentState:
                 "Chrome/120.0.0.0 Safari/537.36"
             )
         }
-        resp = requests.get(url, headers=headers, timeout=15, verify=False)
+        resp = requests.get(_host_url(url), headers=headers, timeout=15, verify=False)
         resp.raise_for_status()
 
         soup = BeautifulSoup(resp.text, "html.parser")

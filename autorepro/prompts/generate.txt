@@ -75,6 +75,11 @@ STRICT RULES:
     - driver.save_screenshot("/screenshots/step_3_after_submit.png") after clicking submit
     - driver.save_screenshot("/screenshots/step_4_result.png") after verification
     These screenshots serve as visual proof of execution for the UI.
+12. NEVER change the Target URL. Use EXACTLY this URL in driver.get(): {target_url}
+    Do NOT replace it with localhost, 127.0.0.1, or any other address.
+    The networking is handled by the system — just use the URL as given.
+13. If ERR_CONNECTION_REFUSED occurs, the issue is NOT the URL — do not change it.
+    Keep the exact same URL and focus on fixing other parts of the script.
 
 Chrome options to use (ALWAYS use this EXACT setup):
   options = Options()

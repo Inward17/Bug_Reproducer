@@ -12,6 +12,26 @@ from utils.logger import get_logger
 log = get_logger(__name__)
 
 
+def _extract_text(content) -> str:
+    """Safely extract text from an LLM response's .content field.
+
+    ChatBedrockConverse returns a list of content blocks like
+    [{"type": "text", "text": "..."}], while other providers return
+    a plain string. This handles both.
+    """
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict) and "text" in block:
+                parts.append(block["text"])
+            elif isinstance(block, str):
+                parts.append(block)
+        return "\n".join(parts).strip()
+    return str(content).strip()
+
+
 def _get_llm():
     """Return the configured LLM instance with slight temperature for creativity."""
     if config.LLM_PROVIDER == "mock":
@@ -49,6 +69,13 @@ def _strip_fences(text: str) -> str:
     return "\n".join(lines)
 
 
+def _fix_url(script: str, target_url: str) -> str:
+    """Ensure the script uses the exact target URL, not LLM-rewritten variants."""
+    import re
+    pattern = re.compile(r'(driver\.get\(|TARGET_URL\s*=\s*)["\']https?://(?:localhost|127\.0\.0\.1)[^"\']*["\']')
+    return pattern.sub(rf'\1"{target_url}"', script)
+
+
 def generate_node(state: AgentState) -> AgentState:
     """Node 2: Generate a Python/Selenium script from the structured analysis."""
     prior = "\n".join(
@@ -68,7 +95,8 @@ def generate_node(state: AgentState) -> AgentState:
 
     for attempt in range(2):
         response = llm.invoke(prompt)
-        script   = _strip_fences(response.content)
+        script   = _strip_fences(_extract_text(response.content))
+        script   = _fix_url(script, state["target_url"])
         try:
             ast.parse(script)
             log.info("generate_success", job_id=state["job_id"])
@@ -79,3 +107,4 @@ def generate_node(state: AgentState) -> AgentState:
                 prompt += f"\n\nSyntax error: {e}. Fix it and return ONLY the corrected script."
 
     return {**state, "script": script}
+

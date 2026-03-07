@@ -10,6 +10,26 @@ from utils.logger import get_logger
 log = get_logger(__name__)
 
 
+def _extract_text(content) -> str:
+    """Safely extract text from an LLM response's .content field.
+
+    ChatBedrockConverse returns a list of content blocks like
+    [{"type": "text", "text": "..."}], while other providers return
+    a plain string. This handles both.
+    """
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict) and "text" in block:
+                parts.append(block["text"])
+            elif isinstance(block, str):
+                parts.append(block)
+        return "\n".join(parts).strip()
+    return str(content).strip()
+
+
 def _get_llm():
     """Return the configured LLM instance."""
     if config.LLM_PROVIDER == "mock":
@@ -40,7 +60,7 @@ def analyze_node(state: AgentState) -> AgentState:
 
     for attempt in range(2):
         response = llm.invoke(prompt)
-        content  = response.content.strip()
+        content  = _extract_text(response.content)
         try:
             analysis = json.loads(content)
             required = {"inferred_steps", "target_elements", "expected_behavior",

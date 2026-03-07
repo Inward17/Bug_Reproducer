@@ -40,10 +40,19 @@ DIAGNOSIS GUIDE — Read the execution result and identify the issue:
    → The script ran fine but your verification check didn't match.
    → Use driver.page_source to search for error keywords.
 
+6. If stderr contains ERR_CONNECTION_REFUSED:
+   → The target URL could not be reached from inside the Docker container.
+   → Do NOT change the URL. Keep the EXACT target URL: {target_url}
+   → The networking is handled by the system — just use the URL as given.
+   → Focus on fixing other parts of the script (selectors, logic, etc.)
+
 Instructions:
 1. Explain in 1-2 sentences what went wrong.
 2. Explain your fix in 1-2 sentences.
 3. Output the COMPLETE corrected Python script. No markdown fences.
+
+CRITICAL: NEVER change the target URL. Always use EXACTLY: {target_url}
+Do NOT replace it with localhost, 127.0.0.1, or any other address.
 
 Apply all rules: import time, WebDriverWait for elements, time.sleep(2) after form submit,
 check page_source for bug evidence, print REPRODUCED on success, screenshot in except,
