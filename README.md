@@ -485,6 +485,39 @@ $env:LLM_PROVIDER="mock"; python -m pytest tests/ -v
 LLM_PROVIDER=mock pytest tests/ -v
 ```
 
+### Flame Graph Profiling on macOS
+
+From inside `autorepro/`, run:
+
+```bash
+./flamegraph.sh 60
+```
+
+What it does:
+- Starts `uvicorn` for `api.main:app`
+- Profiles that exact server PID with the macOS `sample` tool
+- Converts the captured stacks into `autorepro_flamegraph.svg`
+
+During the sampling window, open **http://localhost:8000** and trigger the bug reproduction flow you want to inspect.
+
+Useful variants:
+
+```bash
+./flamegraph.sh 120   # sample for 120 seconds
+./flamegraph.sh 0     # sample until you press Ctrl+C
+```
+
+Output files:
+- `autorepro_flamegraph.svg`
+- `autorepro_sample.output`
+- `autorepro_flamegraph_server.log`
+- `autorepro_flamegraph_sample.log`
+
+Notes:
+- On many macOS setups, sampling a Python process requires `sudo`; the script will prompt before sampling.
+- The script looks for FlameGraph helpers in `autorepro/tools/FlameGraph` first. If you keep them elsewhere, set `AUTOREPRO_FLAMEGRAPH_DIR=/path/to/FlameGraph`.
+- If the SVG render fails, the server was usually idle during sampling. Trigger a real reproduction run while the sampler is active and retry.
+
 ---
 
 ## Security

@@ -48,3 +48,10 @@ autorepro/data/artifacts/
 # Markdown files (except README)
 *.md
 !README.md
+
+# SSH keys
+*.pem
+
+# Flame graph artifacts
+autorepro/autorepro_flamegraph*
+autorepro/autorepro_sample*
