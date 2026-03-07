@@ -1,5 +1,7 @@
 """Tests for Bedrock Converse fallback behavior."""
 
+import io
+import json
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -48,3 +50,31 @@ def test_non_reasoning_errors_still_raise():
             raise AssertionError("Expected RuntimeError to be re-raised")
 
         legacy.invoke.assert_not_called()
+
+
+def test_openai_bedrock_model_uses_invoke_model_directly():
+    payload = {
+        "choices": [
+            {
+                "message": {
+                    "content": (
+                        "<reasoning>hidden chain of thought</reasoning>\n"
+                        "final answer"
+                    )
+                }
+            }
+        ]
+    }
+    mock_client = MagicMock()
+    mock_client.invoke_model.return_value = {
+        "body": io.BytesIO(json.dumps(payload).encode("utf-8"))
+    }
+
+    with patch("boto3.client", return_value=mock_client):
+        llm = make_bedrock_llm("openai.gpt-oss-120b-1:0", 0.1)
+        response = llm.invoke("hello")
+
+    assert response.content == "final answer"
+    mock_client.invoke_model.assert_called_once()
+    _, kwargs = mock_client.invoke_model.call_args
+    assert kwargs["modelId"] == "openai.gpt-oss-120b-1:0"
