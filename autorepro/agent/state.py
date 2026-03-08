@@ -11,6 +11,7 @@ class FailureType(str, Enum):
     ASSERTION_ERROR      = "AssertionError"
     NETWORK_ERROR        = "NetworkError"
     WRONG_VERIFICATION   = "WrongVerification"
+    FALSE_POSITIVE       = "FalsePositive"
     UNKNOWN              = "Unknown"
 
 

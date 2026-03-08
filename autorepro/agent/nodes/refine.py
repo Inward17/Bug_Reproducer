@@ -107,6 +107,7 @@ def refine_node(state: AgentState) -> AgentState:
         failure_json=json.dumps(state["execution_result"], indent=2),
         history_summary=history_summary,
         dom_context=state.get("dom_context", "Not available"),
+        target_url=state["target_url"],
     )
     llm      = _get_llm()
     response = llm.invoke(prompt)

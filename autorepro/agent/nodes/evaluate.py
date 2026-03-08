@@ -25,10 +25,16 @@ def evaluate_node(state: AgentState) -> AgentState:
         elif "ConnectionRefused" in stdout or re.search(r'\b5\d{2}\b', stdout):
             failure_type = FailureType.NETWORK_ERROR
         elif result.get("exit_code", -1) == 0:
-            # Script ran successfully but didn't print REPRODUCED
-            failure_type = FailureType.WRONG_VERIFICATION
-            result = {**result, "error_type": failure_type.value,
-                      "error_message": f"Script exited successfully but did not print REPRODUCED. stdout was: {stdout.strip()[-500:]}"}
+            if "bug not reproduced" in stdout.lower():
+                # Script ran correctly, tested the app, and proved the bug is NOT present
+                failure_type = FailureType.FALSE_POSITIVE
+                result = {**result, "error_type": failure_type.value,
+                          "error_message": "Script proved the bug does not exist (False Positive report)."}
+            else:
+                # Script ran successfully but didn't print REPRODUCED or Bug not reproduced
+                failure_type = FailureType.WRONG_VERIFICATION
+                result = {**result, "error_type": failure_type.value,
+                          "error_message": f"Script exited successfully but did not print REPRODUCED. stdout was: {stdout.strip()[-500:]}"}
         else:
             failure_type = FailureType.UNKNOWN
         if "error_type" not in result or result["error_type"] is None:
