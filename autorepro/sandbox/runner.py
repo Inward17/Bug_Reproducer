@@ -94,6 +94,11 @@ def run(script_path: str, job_id: str) -> dict:
 
     duration = round(time.time() - start, 2)
     result   = parse(stdout, stderr, exit_code)
+    # Collect screenshots from artifacts directory; relying on stdout parsing
+    # misses files because save_screenshot() usually doesn't print paths.
+    file_screenshots = [f"/screenshots/{p.name}" for p in sorted(local_artifacts_dir.glob("*.png"))]
+    combined = list(dict.fromkeys((result.get("screenshot_paths") or []) + file_screenshots))
+    result["screenshot_paths"] = combined
     result["duration_seconds"] = duration
     log.info("container_run_complete", job_id=job_id, exit_code=exit_code, duration=duration)
     return result
@@ -158,6 +163,8 @@ def _local_run(script_path: str, script_content: str, job_id: str) -> dict:
 
     duration = round(time.time() - start, 2)
     parsed = parse(stdout, stderr, exit_code)
+    file_screenshots = [f"/screenshots/{p.name}" for p in sorted(artifacts_dir.glob("*.png"))]
+    parsed["screenshot_paths"] = list(dict.fromkeys((parsed.get("screenshot_paths") or []) + file_screenshots))
     parsed["duration_seconds"] = duration
     log.info("local_run_complete", job_id=job_id, exit_code=exit_code, duration=duration)
     return parsed
