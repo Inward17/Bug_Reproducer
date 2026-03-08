@@ -20,9 +20,9 @@ ACTUAL PAGE DOM (use these EXACT selectors — do NOT guess):
 DIAGNOSIS GUIDE — Read the execution result and identify the issue:
 
 1. If stdout contains "Bug not reproduced" or similar:
-   → Your VERIFICATION LOGIC is wrong. You are checking for the WRONG condition.
+   → Your VERIFICATION LOGIC is wrong. You are checking for the WRONG condition or using the wrong strategy.
    → Remember: "reproducing a bug" means checking that the ERROR/BUG behavior is present.
-   → For a "login always fails" bug: check that an error message like "Invalid" appears in page_source.
+   → For a "login always fails" bug: check that an error message like "Invalid" appears in the visible body text.
    → Do NOT check for success (redirect to dashboard, etc.) — the bug IS the failure.
 
 2. If stderr contains TimeoutException:
@@ -38,7 +38,7 @@ DIAGNOSIS GUIDE — Read the execution result and identify the issue:
 
 5. If exit_code=0 but no "REPRODUCED" in stdout:
    → The script ran fine but your verification check didn't match.
-   → Use driver.page_source to search for error keywords.
+   → Use driver.find_element(By.TAG_NAME, "body").text to search for specific error text. Do not search driver.page_source for generic keywords.
 
 6. If stderr contains ERR_CONNECTION_REFUSED:
    → The target URL could not be reached from inside the Docker container.
@@ -55,7 +55,7 @@ CRITICAL: NEVER change the target URL. Always use EXACTLY: {target_url}
 Do NOT replace it with localhost, 127.0.0.1, or any other address.
 
 Apply all rules: import time, WebDriverWait for elements, time.sleep(2) after form submit,
-check page_source for bug evidence, print REPRODUCED on success, screenshot in except,
+check visible text or elements or URLs for bug evidence, print REPRODUCED on success, screenshot in except,
 driver.quit() in finally.
 IMPORTANT: Also add driver.save_screenshot("/screenshots/step_N_description.png")
 after EVERY significant step for visual proof of execution.

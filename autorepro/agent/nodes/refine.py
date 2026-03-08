@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 from agent.state import AgentState
-from utils.llm import get_llm
+from utils import config
 from utils.logger import get_logger
 
 log = get_logger(__name__)
@@ -34,7 +34,23 @@ def _extract_text(content) -> str:
 
 def _get_llm():
     """Return the configured LLM instance with moderate temperature for variation."""
-    return get_llm(temperature=0.3)
+    if config.LLM_PROVIDER == "mock":
+        from utils.mock_llm import MockLLM
+        return MockLLM()
+    if config.LLM_PROVIDER == "bedrock":
+        from langchain_aws import ChatBedrockConverse
+        return ChatBedrockConverse(model=config.LLM_MODEL, temperature=0.3)
+    if config.LLM_PROVIDER == "anthropic":
+        from langchain_anthropic import ChatAnthropic
+        return ChatAnthropic(model=config.LLM_MODEL, temperature=0.3)
+    if config.LLM_PROVIDER == "google":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        return ChatGoogleGenerativeAI(model=config.LLM_MODEL, temperature=0.3)
+    if config.LLM_PROVIDER == "ollama":
+        from langchain_ollama import ChatOllama
+        return ChatOllama(model=config.LLM_MODEL, temperature=0.3)
+    from langchain_openai import ChatOpenAI
+    return ChatOpenAI(model=config.LLM_MODEL, temperature=0.3)
 
 
 def _extract_script(content: str) -> tuple[str, str]:
@@ -77,10 +93,6 @@ def _fix_url(script: str, target_url: str) -> str:
     return pattern.sub(rf'\1"{target_url}"', script)
 
 
-def _safe_val(s: str) -> str:
-    """Escape { and } in dynamic content so str.format() won't misinterpret braces."""
-    return str(s).replace("{", "{{").replace("}", "}}")
-
 def refine_node(state: AgentState) -> AgentState:
     """Node 5: LLM rewrites the script based on failure feedback."""
     history_summary = "\n".join(
@@ -90,11 +102,11 @@ def refine_node(state: AgentState) -> AgentState:
     project_root = Path(__file__).resolve().parent.parent.parent
     template = (project_root / "prompts" / "refine.txt").read_text()
     prompt   = template.format(
-        bug_report=_safe_val(state["bug_report"]),
-        previous_script=_safe_val(state["script"]),
-        failure_json=_safe_val(json.dumps(state["execution_result"], indent=2)),
-        history_summary=_safe_val(history_summary),
-        dom_context=_safe_val(state.get("dom_context", "Not available")),
+        bug_report=state["bug_report"],
+        previous_script=state["script"],
+        failure_json=json.dumps(state["execution_result"], indent=2),
+        history_summary=history_summary,
+        dom_context=state.get("dom_context", "Not available"),
         target_url=state["target_url"],
     )
     llm      = _get_llm()

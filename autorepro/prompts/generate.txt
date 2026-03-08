@@ -10,15 +10,19 @@ You are NOT fixing the bug. You are PROVING it exists.
 VERIFICATION PATTERN — Your script MUST follow this pattern:
 ```
 # After performing the actions that trigger the bug...
-page_source = driver.page_source
 
-# Check for the buggy behavior in the page
-# Examples of what to check based on bug type:
-#   - Error message bugs: "Invalid" in page_source or "error" in page_source
-#   - Missing element bugs: check element is NOT present
-#   - Wrong redirect bugs: check driver.current_url
-#   - Display bugs: check element text content
-#   - Page reload bugs: use JS marker technique (see below)
+# Check for the buggy behavior in the page USING THE EXACT STRATEGY REQUIRED:
+# 1. Text/Error message bugs: ALWAYS use body visible text
+#    visible_text = driver.find_element(By.TAG_NAME, "body").text
+#    if "Invalid" in visible_text:
+# 2. Missing element/structure bugs: check element list length
+#    elements = driver.find_elements(By.CSS_SELECTOR, ".expected-element")
+#    if len(elements) == 0:
+# 3. Navigation/Redirect bugs: check driver.current_url
+#    if "/dashboard" not in driver.current_url:
+# 4. Visual/State bugs: check element attributes
+#    classes = driver.find_element(By.ID, "btn").get_attribute("class")
+#    if "active" not in classes:
 
 if <bug_condition_is_found>:
     print("REPRODUCED")
@@ -68,7 +72,7 @@ STRICT RULES:
 7. Output ONLY the Python script. No markdown fences. No explanation.
 8. After submitting forms, use time.sleep(2) to wait for the page to process, then check page_source.
 9. Use flexible selectors: try button[type='submit'] or input[type='submit'] for submit buttons.
-10. To check for error messages, use: driver.page_source to get all page text and search for keywords.
+10. To check for error messages, use: driver.find_element(By.TAG_NAME, "body").text to only search VISIBLE text. NEVER search driver.page_source for generic keywords like "error" or "cannot" as this causes false positives from HTML/JS code. Only check for the exact success_condition.
 11. SCREENSHOT EVIDENCE — capture a screenshot AFTER each significant step:
     - driver.save_screenshot("/screenshots/step_1_page_loaded.png") after navigating
     - driver.save_screenshot("/screenshots/step_2_form_filled.png") after filling fields
@@ -89,4 +93,3 @@ Chrome options to use (ALWAYS use this EXACT setup):
   options.binary_location = "/usr/bin/chromium"
   service = Service("/usr/bin/chromedriver")
   driver = webdriver.Chrome(service=service, options=options)
-

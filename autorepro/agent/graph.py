@@ -15,6 +15,12 @@ def route_after_evaluate(state: AgentState) -> str:
     """Route after evaluation: end on success, refine if attempts remain, else end failure."""
     if state["success"]:
         return "end_success"
+        
+    error_type = state["execution_result"].get("error_type")
+    if error_type == "FalsePositive":
+        # The script proved the bug does not exist. Stop immediately, do not refine.
+        return "end_failure"
+        
     if state["attempt_count"] < state["max_attempts"]:
         return "refine"
     return "end_failure"
