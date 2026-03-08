@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import FileResponse
 
-from api.schemas import ReproduceRequest, JobCreatedResponse, JobResultResponse
+from api.schemas import ReproduceRequest, JobCreatedResponse
 from agent.orchestrator import run_agent
 from storage import jobs as job_store
 from storage.artifacts import artifacts_dir
@@ -45,22 +45,30 @@ async def get_result(job_id: str):
         f"/result/{job_id}/screenshot/{p.name}"
         for p in sorted(artifacts_dir(job_id).glob("*.png"))
     ]
-    logs = "".join(
-        h.get("result", {}).get("stdout", "")
-        for h in job.get("history", [])
-    )
+    logs = ""
+    for h in job.get("history", []):
+        result = h.get("result", {})
+        stdout = result.get("stdout", "")
+        stderr = result.get("stderr", "")
+        logs += stdout
+        if stderr:
+            logs += f"\n[stderr attempt {h.get('attempt', '?')}]\n{stderr}\n"
 
-    return JobResultResponse(
-        job_id=job_id,
-        status=job.get("status", "unknown"),
-        success=job.get("success"),
-        attempt_count=job.get("attempt_count"),
-        final_script=job.get("final_script") or job.get("script"),
-        screenshot_urls=screenshots,
-        logs=logs,
-        created_at=job.get("created_at"),
-        completed_at=job.get("completed_at"),
-    )
+    execution_result = job.get("execution_result", {})
+
+    return {
+        "job_id": job_id,
+        "status": job.get("status", "unknown"),
+        "success": job.get("success"),
+        "attempt_count": job.get("attempt_count"),
+        "final_script": job.get("final_script") or job.get("script"),
+        "screenshot_urls": screenshots,
+        "logs": logs,
+        "error_type": execution_result.get("error_type"),
+        "stderr": execution_result.get("stderr"),
+        "created_at": job.get("created_at"),
+        "completed_at": job.get("completed_at"),
+    }
 
 
 @router.get("/result/{job_id}/script")

@@ -1,5 +1,6 @@
 """Container lifecycle management — runs Selenium scripts in isolated Docker containers."""
 
+import os
 import time
 import docker
 from pathlib import Path
@@ -22,9 +23,27 @@ class ContainerError(Exception):
     pass
 
 
+def _resolve_bind_source(path: Path) -> Path:
+    """Resolve a bind source path that the host Docker daemon can actually see."""
+    local_path = path.resolve()
+    host_data_dir = os.getenv("HOST_DATA_DIR", "").strip()
+    if not host_data_dir:
+        return local_path
+
+    local_data_dir = Path(config.DATA_DIR).resolve()
+    try:
+        relative = local_path.relative_to(local_data_dir)
+    except ValueError:
+        # Paths outside DATA_DIR are assumed to already be host-visible.
+        return local_path
+
+    return Path(host_data_dir).resolve() / relative
+
+
 def run(script_path: str, job_id: str) -> dict:
     """Run a Selenium script in an isolated Docker container. Returns ExecutionResult dict."""
-    script_content = Path(script_path).read_text()
+    local_script_path = Path(script_path).resolve()
+    script_content = local_script_path.read_text()
     check(script_content)
 
     # ── Demo mode: run locally with visible browser (no Docker needed) ──
@@ -32,18 +51,20 @@ def run(script_path: str, job_id: str) -> dict:
         return _demo_run(script_content, job_id)
 
     client = docker.from_env()
-    artifacts_dir = Path(config.DATA_DIR) / "artifacts" / job_id
-    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    local_artifacts_dir = Path(config.DATA_DIR) / "artifacts" / job_id
+    local_artifacts_dir.mkdir(parents=True, exist_ok=True)
 
     container = None
     start = time.time()
 
     try:
+        script_bind_src = _resolve_bind_source(local_script_path)
+        artifacts_bind_src = _resolve_bind_source(local_artifacts_dir)
         container = client.containers.run(
             image=config.SANDBOX_IMAGE,
             volumes={
-                str(Path(script_path).resolve()): {"bind": "/scripts/script.py", "mode": "ro"},
-                str(artifacts_dir.resolve()):      {"bind": "/screenshots",       "mode": "rw"},
+                str(script_bind_src):    {"bind": "/scripts/script.py", "mode": "ro"},
+                str(artifacts_bind_src): {"bind": "/screenshots",       "mode": "rw"},
             },
             mem_limit=f"{config.SANDBOX_MEMORY_MB}m",
             nano_cpus=1_000_000_000,
@@ -177,4 +198,3 @@ def _demo_run(script_content: str, job_id: str) -> dict:
     result["duration_seconds"] = 2.5
     log.info("demo_run_complete", job_id=job_id, exit_code=exit_code, success=has_reproduced)
     return result
-
