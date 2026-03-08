@@ -89,10 +89,8 @@ def _extract_elements(soup: BeautifulSoup) -> str:
 
 def _fetch_dom_via_sandbox(url: str, job_id: str) -> str:
     """Fetch the fully rendered DOM of an SPA by running a Selenium script in the sandbox."""
-    from pathlib import Path
-    import tempfile
     from sandbox import runner
-    from utils import config
+    from storage.artifacts import artifacts_dir
 
     log.info("inspect_spa_fallback_start", job_id=job_id, url=url)
 
@@ -117,26 +115,22 @@ try:
 finally:
     driver.quit()
 """
-    # Write the script to a temporary file
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(script_code)
-        script_path = f.name
+    job_artifacts_dir = artifacts_dir(job_id)
+    script_path = job_artifacts_dir / "inspect_spa.py"
+    script_path.write_text(script_code, encoding="utf-8")
 
-    try:
-        # Run it in the sandbox
-        runner.run(script_path, job_id)
+    # Run it in the sandbox
+    runner.run(str(script_path), job_id)
 
-        # Read the generated DOM file
-        dom_file = Path(config.DATA_DIR) / "artifacts" / job_id / "dom.html"
-        if dom_file.exists():
-            html = dom_file.read_text(encoding="utf-8")
-            log.info("inspect_spa_fallback_success", job_id=job_id)
-            return html
-        else:
-            log.warning("inspect_spa_fallback_missing_output", job_id=job_id)
-            return ""
-    finally:
-        Path(script_path).unlink(missing_ok=True)
+    # Read the generated DOM file
+    dom_file = job_artifacts_dir / "dom.html"
+    if dom_file.exists():
+        html = dom_file.read_text(encoding="utf-8")
+        log.info("inspect_spa_fallback_success", job_id=job_id)
+        return html
+
+    log.warning("inspect_spa_fallback_missing_output", job_id=job_id)
+    return ""
 
 
 def inspect_node(state: AgentState) -> AgentState:

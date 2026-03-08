@@ -1,10 +1,9 @@
 """Node 3 — Docker execution: write script to disk and run in sandbox (no LLM)."""
 
-from pathlib import Path
-
 from agent.state import AgentState
 from sandbox import runner
 from sandbox.security import SecurityError
+from storage.artifacts import artifacts_dir
 from utils import config
 from utils.logger import get_logger
 
@@ -14,9 +13,8 @@ log = get_logger(__name__)
 def execute_node(state: AgentState) -> AgentState:
     """Node 3: Write script to disk and run it in the Docker sandbox."""
     attempt_num   = state["attempt_count"] + 1
-    artifacts_dir = Path(config.DATA_DIR) / "artifacts" / state["job_id"]
-    artifacts_dir.mkdir(parents=True, exist_ok=True)
-    script_path   = artifacts_dir / f"attempt_{attempt_num}.py"
+    job_artifacts_dir = artifacts_dir(state["job_id"])
+    script_path   = job_artifacts_dir / f"attempt_{attempt_num}.py"
     script_path.write_text(state["script"], encoding="utf-8")
 
     try:
