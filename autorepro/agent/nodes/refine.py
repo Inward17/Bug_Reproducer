@@ -79,17 +79,36 @@ def _fix_url(script: str, target_url: str) -> str:
 
 def refine_node(state: AgentState) -> AgentState:
     """Node 5: LLM rewrites the script based on failure feedback."""
-    history_summary = "\n".join(
-        f"Attempt {h['attempt']}: error_type={h['result'].get('error_type')}, note={h.get('refinement_note', 'N/A')}"
-        for h in state["history"]
-    )
+    # Build full history with complete script and console output per attempt
+    full_history_parts = []
+    for h in state["history"]:
+        attempt_num = h["attempt"]
+        script_code = h.get("script", "N/A")
+        result = h.get("result", {})
+        stdout = result.get("stdout", "")
+        stderr = result.get("stderr", "")
+        error_type = result.get("error_type", "N/A")
+        note = h.get("refinement_note", "N/A")
+
+        part = (
+            f"=== ATTEMPT {attempt_num} ===\n"
+            f"Error type: {error_type}\n"
+            f"Refinement note: {note}\n\n"
+            f"--- Script ---\n{script_code}\n\n"
+            f"--- stdout ---\n{stdout}\n\n"
+            f"--- stderr ---\n{stderr}\n"
+        )
+        full_history_parts.append(part)
+
+    full_history = "\n".join(full_history_parts) if full_history_parts else "No previous attempts."
+
     project_root = Path(__file__).resolve().parent.parent.parent
     template = (project_root / "prompts" / "refine.txt").read_text()
     prompt   = template.format(
         bug_report=state["bug_report"],
         previous_script=state["script"],
         failure_json=json.dumps(state["execution_result"], indent=2),
-        history_summary=history_summary,
+        full_history=full_history,
         dom_context=state.get("dom_context", "Not available"),
         target_url=state["target_url"],
     )
@@ -111,3 +130,4 @@ def refine_node(state: AgentState) -> AgentState:
 
     log.info("refine_complete", job_id=state["job_id"], attempt=state["attempt_count"])
     return {**state, "script": corrected_script, "history": updated_history}
+

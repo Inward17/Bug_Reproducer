@@ -171,17 +171,19 @@ def _local_run(script_path: str, script_content: str, job_id: str) -> dict:
 
 
 def _demo_run(script_content: str, job_id: str) -> dict:
-    """Fallback: simulate script execution when local run fails."""
+    """Fallback: simulate script execution when local run fails.
+
+    Only marks as reproduced if the script contains an explicit
+    'print("REPRODUCED")' statement, which is the same contract the
+    real evaluate node checks. Otherwise simulates a 'not reproduced' result.
+    """
     log.info("demo_mode_execution", job_id=job_id)
     time.sleep(2.5)
 
-    reproduction_signals = [
-        'find_element', 'send_keys', '.click()', 'driver.get(',
-        'WebDriverWait', 'assert', 'error', 'invalid', 'credential',
-        'presence_of_element',
-    ]
-    signal_count = sum(1 for s in reproduction_signals if s.lower() in script_content.lower())
-    has_reproduced = signal_count >= 3
+    lower = script_content.lower()
+
+    # The script must explicitly print REPRODUCED — same contract as evaluate_node
+    has_reproduced = 'print("reproduced")' in lower or "print('reproduced')" in lower
 
     if has_reproduced:
         stdout = (
@@ -197,9 +199,14 @@ def _demo_run(script_content: str, job_id: str) -> dict:
         stderr = ""
         exit_code = 0
     else:
-        stdout = "Setting up Chrome driver...\nNavigating to target page...\n"
-        stderr = "selenium.common.exceptions.NoSuchElementException: Unable to locate element\n"
-        exit_code = 1
+        stdout = (
+            "Setting up Chrome driver...\n"
+            "Navigating to target page...\n"
+            "Executing test steps...\n"
+            "Bug not reproduced\n"
+        )
+        stderr = ""
+        exit_code = 0
 
     result = parse(stdout, stderr, exit_code)
     result["duration_seconds"] = 2.5

@@ -11,8 +11,12 @@ It produced these results:
 --- EXECUTION RESULT ---
 {failure_json}
 
-Attempt history (do not repeat these mistakes):
-{history_summary}
+--- FULL ATTEMPT HISTORY ---
+Below is the complete history of ALL previous attempts, including the full script and
+full console output (stdout + stderr) for each. Study these carefully to understand
+what has been tried and what the actual page returned. Do NOT repeat the same mistakes.
+
+{full_history}
 
 ACTUAL PAGE DOM (use these EXACT selectors — do NOT guess):
 {dom_context}
@@ -24,6 +28,8 @@ DIAGNOSIS GUIDE — Read the execution result and identify the issue:
    → Remember: "reproducing a bug" means checking that the ERROR/BUG behavior is present.
    → For a "login always fails" bug: check that an error message like "Invalid" appears in the visible body text.
    → Do NOT check for success (redirect to dashboard, etc.) — the bug IS the failure.
+   → IMPORTANT: Try checking DIFFERENT conditions. The page might show the bug differently
+     than you expected. Read the stdout from previous attempts to see what the page actually shows.
 
 2. If stderr contains TimeoutException:
    → An element was not found. The CSS selector is wrong.
@@ -39,6 +45,7 @@ DIAGNOSIS GUIDE — Read the execution result and identify the issue:
 5. If exit_code=0 but no "REPRODUCED" in stdout:
    → The script ran fine but your verification check didn't match.
    → Use driver.find_element(By.TAG_NAME, "body").text to search for specific error text. Do not search driver.page_source for generic keywords.
+   → Try a DIFFERENT verification approach than what was used before.
 
 6. If stderr contains ERR_CONNECTION_REFUSED:
    → The target URL could not be reached from inside the Docker container.
