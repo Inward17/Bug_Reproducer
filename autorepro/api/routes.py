@@ -82,8 +82,13 @@ def _load_job(job_id: str) -> dict:
 
 
 @router.post("/reproduce", response_model=JobCreatedResponse, status_code=202)
-async def reproduce(request: ReproduceRequest, background_tasks: BackgroundTasks):
-    """Accept a bug report and start asynchronous reproduction."""
+def reproduce(request: ReproduceRequest, background_tasks: BackgroundTasks):
+    """Accept a bug report and start asynchronous reproduction.
+
+    The handlers in this module are plain ``def`` on purpose: they resolve DNS and read
+    job files, and FastAPI runs sync handlers in a thread pool. As ``async def`` they
+    blocked the event loop, stalling every other request while one ran.
+    """
     target_url = str(request.target_url)
     try:
         # Reject an unfetchable target now, with a clear error, instead of failing a job.
@@ -108,7 +113,7 @@ async def reproduce(request: ReproduceRequest, background_tasks: BackgroundTasks
 
 
 @router.get("/result/{job_id}")
-async def get_result(job_id: str):
+def get_result(job_id: str):
     """Get the current status/result of a reproduction job."""
     job = _load_job(job_id)
 
@@ -162,7 +167,7 @@ async def get_result(job_id: str):
 
 
 @router.get("/result/{job_id}/script")
-async def get_script(job_id: str):
+def get_script(job_id: str):
     """Download the final reproduction script as a .py file."""
     _load_job(job_id)
     job_dir = existing_artifacts_dir(job_id)
@@ -173,7 +178,7 @@ async def get_script(job_id: str):
 
 
 @router.get("/result/{job_id}/screenshot/{filename}")
-async def get_screenshot(job_id: str, filename: str):
+def get_screenshot(job_id: str, filename: str):
     """Serve a screenshot image captured during execution."""
     path = screenshot_path(job_id, filename)
     if path is None:
@@ -182,7 +187,7 @@ async def get_screenshot(job_id: str, filename: str):
 
 
 @router.get("/jobs")
-async def list_jobs(
+def list_jobs(
     summary: bool = False,
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),

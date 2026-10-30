@@ -51,22 +51,27 @@ def _resolve_bind_source(path: Path) -> Path:
 
 
 def _collect_outputs(attempt_dir: Path, job_dir: Path, attempt: int) -> list[str]:
-    """Move an attempt's files into the job directory, prefixing screenshots.
+    """Move an attempt's files into the job directory under attempt-scoped names.
 
     Each attempt gets its own mount, so attempt 3's ``step_1_page_loaded.png`` no longer
-    overwrites attempt 1's. The prefix keeps the evidence timeline in order under a
-    natural sort.
+    overwrites attempt 1's, and the prefix keeps the timeline in order. Every file is
+    prefixed — not just screenshots — because the script chooses these names: a script
+    writing ``/screenshots/final.py`` must not replace the stored reproduction script.
+    The one exception is the inspect step's rendered ``dom.html``.
     """
     collected = []
+    if not attempt_dir.is_dir():
+        return collected
     for item in sorted(attempt_dir.iterdir()):
         if not item.is_file():
             continue
-        if item.suffix.lower() == ".png":
-            target = job_dir / f"a{attempt}_{item.name}"
-            collected.append(f"/screenshots/{target.name}")
-        else:
+        if attempt == 0 and item.name == "dom.html":
             target = job_dir / item.name
-        shutil.move(str(item), str(target))
+        else:
+            target = job_dir / f"a{attempt}_{item.name}"
+        os.replace(item, target)  # shutil.move refuses to overwrite on Windows
+        if target.suffix.lower() == ".png":
+            collected.append(f"/screenshots/{target.name}")
     shutil.rmtree(attempt_dir, ignore_errors=True)
     return collected
 
@@ -148,11 +153,13 @@ def run(script_path: str, job_id: str, attempt: int = 1) -> dict:
                     container.remove(force=True)
                 except Exception:
                     pass
+            # Collect even when the run timed out or errored: a failure screenshot is the
+            # most useful evidence a failed attempt leaves behind.
+            # save_screenshot() doesn't print its path, so the files on disk are the list.
+            from_disk = _collect_outputs(attempt_dir, job_dir, attempt)
 
     duration = round(time.time() - start, 2)
     result   = parse(stdout, stderr, exit_code)
-    # save_screenshot() doesn't print its path, so the files on disk are the real list.
-    from_disk = _collect_outputs(attempt_dir, job_dir, attempt)
     result["screenshot_paths"] = from_disk
     result["duration_seconds"] = duration
     log.info("container_run_complete", job_id=job_id, attempt=attempt,

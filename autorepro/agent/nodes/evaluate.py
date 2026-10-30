@@ -19,10 +19,13 @@ def evaluate_node(state: AgentState) -> AgentState:
     exit_code = result.get("exit_code", -1)
     verdict   = parse_verdict(stdout)
 
-    crashed = exit_code != 0 or result.get("error_type") is not None
-    success = verdict is not None and verdict["reproduced"] and not crashed
+    # The exit code is the crash signal. error_type can be set on a clean exit too (a page
+    # that printed a network error string), and it must not veto a verdict on its own.
+    success = verdict is not None and verdict["reproduced"] and exit_code == 0
 
-    if not success and result.get("error_type") is None:
+    if success:
+        result = {**result, "error_type": None, "error_message": None}
+    elif result.get("error_type") is None:
         if verdict is None:
             failure_type = FailureType.WRONG_VERIFICATION
             message = ("Script exited cleanly but never printed an AUTOREPRO_RESULT verdict line. "
