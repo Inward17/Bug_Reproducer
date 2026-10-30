@@ -55,3 +55,6 @@ autorepro/data/artifacts/
 # Flame graph artifacts
 autorepro/autorepro_flamegraph*
 autorepro/autorepro_sample*
+
+# Analysis reports
+!docs/analysis/*.md
