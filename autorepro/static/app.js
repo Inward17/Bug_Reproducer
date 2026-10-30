@@ -543,10 +543,16 @@ function renderPipeline(job) {
         status.append(job.stage ? `Stopped during the ${job.stage} stage.` : 'The run stopped with an error.');
     } else if (job.success) {
         status.append(`Bug reproduced on attempt ${attempts}${job.max_attempts ? ` of ${job.max_attempts}` : ''}.`);
+    } else if (job.bug_absent) {
+        status.append(`Concluded the bug is not present, after ${plural(attempts, 'attempt')} with different strategies.`);
     } else {
         const reason = last && last.error_type ? ` Last outcome: ${last.error_type}.` : '';
         status.append(`Not reproduced after ${plural(attempts, 'attempt')}.${reason}`);
     }
+
+    // DEMO_MODE never starts a browser, so its verdict is generated, not observed.
+    const banner = $('simulatedBanner');
+    if (banner) banner.hidden = !job.simulated;
 }
 
 /* Overview ------------------------------------------------ */
