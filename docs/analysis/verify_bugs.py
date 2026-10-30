@@ -128,23 +128,21 @@ def _():
     return "{{" in llm.invoke.call_args[0][0].split("Analysis (includes")[1]
 
 
-@check("B12", "_fix_url rewrites a second localhost navigation to the target URL")
+@check("B12", "fix_url rewrites a second localhost navigation to the target URL")
 def _():
-    from agent.nodes.generate import _fix_url
-    out = _fix_url('driver.get("http://localhost:8080/login")\n'
-                   'driver.get("http://localhost:8080/dashboard")', "http://t:8080/login")
+    from agent.common import fix_url
+    out = fix_url('driver.get("http://localhost:8080/login")\n'
+                  'driver.get("http://localhost:8080/dashboard")', "http://t:8080/login")
     return "/dashboard" not in out
 
 
 @check("B13", "refine treats prose starting with 'from ' as code")
 def _():
-    from agent.nodes.refine import _extract_script
-    _, script = _extract_script("Selector was wrong.\nfrom the logs the id is #go.\nimport time\n")
-    try:
-        compile(script, "s", "exec")
-        return False
-    except SyntaxError:
-        return True
+    from agent.common import parse_script
+    # A reply that is prose plus one import line is not a script. The old heuristic
+    # sliced it at the first "from "/"import " line and shipped the prose as code.
+    _, script = parse_script("Selector was wrong.\nfrom the logs the id is #go.\nimport time\n")
+    return script is not None
 
 
 @check("B14", "'512 items' in stdout classified as NetworkError / refused connection as Unknown")

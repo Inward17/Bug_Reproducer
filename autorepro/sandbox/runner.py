@@ -1,16 +1,26 @@
 """Container lifecycle management — runs Selenium scripts in isolated Docker containers."""
 
 import os
+import shutil
+import threading
 import time
-import docker
 from pathlib import Path
 
+import docker
+from docker.errors import APIError, DockerException, ImageNotFound
+
+from agent.common import VERDICT_PREFIX, parse_verdict
 from sandbox.feedback_parser import parse
 from sandbox.security import check, SecurityError
 from utils import config
 from utils.logger import get_logger
 
 log = get_logger(__name__)
+
+# One semaphore per process. Each sandbox is a Chromium container, so an unbounded
+# burst of jobs is an easy way to OOM the host.
+# ponytail: process-local cap; needs a shared limiter once the API runs more than one worker.
+_slots = threading.Semaphore(config.MAX_CONCURRENT_SANDBOXES)
 
 
 class SandboxTimeoutError(Exception):
@@ -40,175 +50,149 @@ def _resolve_bind_source(path: Path) -> Path:
     return Path(host_data_dir).resolve() / relative
 
 
-def run(script_path: str, job_id: str) -> dict:
+def _collect_outputs(attempt_dir: Path, job_dir: Path, attempt: int) -> list[str]:
+    """Move an attempt's files into the job directory, prefixing screenshots.
+
+    Each attempt gets its own mount, so attempt 3's ``step_1_page_loaded.png`` no longer
+    overwrites attempt 1's. The prefix keeps the evidence timeline in order under a
+    natural sort.
+    """
+    collected = []
+    for item in sorted(attempt_dir.iterdir()):
+        if not item.is_file():
+            continue
+        if item.suffix.lower() == ".png":
+            target = job_dir / f"a{attempt}_{item.name}"
+            collected.append(f"/screenshots/{target.name}")
+        else:
+            target = job_dir / item.name
+        shutil.move(str(item), str(target))
+    shutil.rmtree(attempt_dir, ignore_errors=True)
+    return collected
+
+
+def run(script_path: str, job_id: str, attempt: int = 1) -> dict:
     """Run a Selenium script in an isolated Docker container. Returns ExecutionResult dict."""
     local_script_path = Path(script_path).resolve()
-    script_content = local_script_path.read_text()
+    script_content = local_script_path.read_text(encoding="utf-8")
     check(script_content)
 
-    # ── Demo mode: run locally with visible browser (no Docker needed) ──
     if config.DEMO_MODE:
         return _demo_run(script_content, job_id)
 
     client = docker.from_env()
-    local_artifacts_dir = Path(config.DATA_DIR) / "artifacts" / job_id
-    local_artifacts_dir.mkdir(parents=True, exist_ok=True)
+    job_dir = Path(config.DATA_DIR) / "artifacts" / job_id
+    attempt_dir = job_dir / f"attempt_{attempt}"
+    attempt_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(attempt_dir, 0o777)  # the container runs as uid 1000, not as us
+    except OSError:
+        pass
 
     container = None
     start = time.time()
 
-    try:
-        script_bind_src = _resolve_bind_source(local_script_path)
-        artifacts_bind_src = _resolve_bind_source(local_artifacts_dir)
-        container = client.containers.run(
-            image=config.SANDBOX_IMAGE,
-            volumes={
-                str(script_bind_src):    {"bind": "/scripts/script.py", "mode": "ro"},
-                str(artifacts_bind_src): {"bind": "/screenshots",       "mode": "rw"},
-            },
-            mem_limit=f"{config.SANDBOX_MEMORY_MB}m",
-            nano_cpus=1_000_000_000,
-            network_mode="bridge",
-            extra_hosts={"host.docker.internal": "host-gateway"},
-            user="1000",
-            detach=True,
-            auto_remove=False,
-        )
+    # Chromium needs a writable /tmp and home even with a read-only root filesystem.
+    hardening = {}
+    if config.SANDBOX_READ_ONLY:
+        hardening = {
+            "read_only": True,
+            "tmpfs": {"/tmp": "size=256m,exec", "/home/sandbox": "size=64m,exec"},
+        }
 
+    with _slots:
         try:
-            wait_result = container.wait(timeout=config.SANDBOX_TIMEOUT_SECONDS)
-        except Exception:
-            container.kill()
-            raise SandboxTimeoutError(f"Container exceeded {config.SANDBOX_TIMEOUT_SECONDS}s timeout")
+            container = client.containers.run(
+                image=config.SANDBOX_IMAGE,
+                volumes={
+                    str(_resolve_bind_source(local_script_path)): {"bind": "/scripts/script.py", "mode": "ro"},
+                    str(_resolve_bind_source(attempt_dir)):       {"bind": "/screenshots",       "mode": "rw"},
+                },
+                mem_limit=f"{config.SANDBOX_MEMORY_MB}m",
+                nano_cpus=1_000_000_000,
+                pids_limit=config.SANDBOX_PIDS_LIMIT,
+                cap_drop=["ALL"],
+                security_opt=["no-new-privileges"],
+                network_mode="bridge",
+                extra_hosts={"host.docker.internal": "host-gateway"},
+                user="1000",
+                detach=True,
+                auto_remove=False,
+                **hardening,
+            )
 
-        stdout    = container.logs(stdout=True,  stderr=False).decode("utf-8", errors="replace")
-        stderr    = container.logs(stdout=False, stderr=True).decode("utf-8",  errors="replace")
-        exit_code = wait_result["StatusCode"]
-
-    finally:
-        if container:
             try:
-                container.remove(force=True)
-            except Exception:
-                pass
+                wait_result = container.wait(timeout=config.SANDBOX_TIMEOUT_SECONDS)
+            except (APIError, DockerException):
+                raise  # a daemon problem is not a script timeout
+            except Exception as e:
+                # docker-py surfaces the wait timeout as a requests ReadTimeout.
+                try:
+                    container.kill()
+                except Exception:
+                    pass
+                raise SandboxTimeoutError(
+                    f"Container exceeded {config.SANDBOX_TIMEOUT_SECONDS}s timeout") from e
+
+            stdout    = container.logs(stdout=True,  stderr=False).decode("utf-8", errors="replace")
+            stderr    = container.logs(stdout=False, stderr=True).decode("utf-8",  errors="replace")
+            exit_code = wait_result["StatusCode"]
+
+        except ImageNotFound as e:
+            raise ContainerError(
+                f"Sandbox image {config.SANDBOX_IMAGE!r} is missing. Build it with: "
+                f"docker build -t {config.SANDBOX_IMAGE} ./sandbox") from e
+        finally:
+            if container:
+                try:
+                    container.remove(force=True)
+                except Exception:
+                    pass
 
     duration = round(time.time() - start, 2)
     result   = parse(stdout, stderr, exit_code)
-    # Collect screenshots from artifacts directory; relying on stdout parsing
-    # misses files because save_screenshot() usually doesn't print paths.
-    file_screenshots = [f"/screenshots/{p.name}" for p in sorted(local_artifacts_dir.glob("*.png"))]
-    combined = list(dict.fromkeys((result.get("screenshot_paths") or []) + file_screenshots))
-    result["screenshot_paths"] = combined
+    # save_screenshot() doesn't print its path, so the files on disk are the real list.
+    from_disk = _collect_outputs(attempt_dir, job_dir, attempt)
+    result["screenshot_paths"] = from_disk
     result["duration_seconds"] = duration
-    log.info("container_run_complete", job_id=job_id, exit_code=exit_code, duration=duration)
+    log.info("container_run_complete", job_id=job_id, attempt=attempt,
+             exit_code=exit_code, duration=duration)
     return result
-
-def _local_run(script_path: str, script_content: str, job_id: str) -> dict:
-    """Run the script locally with a VISIBLE browser window (no Docker)."""
-    import subprocess
-    import re
-
-    log.info("local_execution_start", job_id=job_id)
-
-    # Rewrite script for local macOS execution:
-    # 1. Remove Docker-specific paths
-    # 2. Remove --headless so browser is VISIBLE
-    # 3. Use webdriver-manager for chromedriver
-    local_script = script_content
-
-    # Remove headless flags so browser window is visible
-    local_script = local_script.replace('options.add_argument("--headless")', '# VISIBLE MODE')
-    local_script = local_script.replace("options.add_argument('--headless')", '# VISIBLE MODE')
-    local_script = re.sub(r'options\.add_argument\(["\']--headless=\w+["\']\)', '# VISIBLE MODE', local_script)
-
-    # Remove Docker-specific binary paths
-    local_script = re.sub(r'options\.binary_location\s*=\s*["\'][^"\']*["\']', '# using system Chrome', local_script)
-    local_script = re.sub(r'service\s*=\s*Service\(["\'][^"\']*["\']\)', 'service = Service(ChromeDriverManager().install())', local_script)
-
-    # Add webdriver-manager import if Service is used
-    if 'Service(' in local_script and 'ChromeDriverManager' not in local_script:
-        local_script = "from webdriver_manager.chrome import ChromeDriverManager\n" + local_script
-
-    # Add a pause before quit so the user can SEE the result
-    local_script = local_script.replace('driver.quit()', 'import time; time.sleep(3); driver.quit()')
-
-    # Write the modified script to a temp file
-    local_path = Path(script_path).parent / f"local_{Path(script_path).name}"
-    local_path.write_text(local_script)
-
-    artifacts_dir = Path(config.DATA_DIR) / "artifacts" / job_id
-    artifacts_dir.mkdir(parents=True, exist_ok=True)
-
-    start = time.time()
-    try:
-        result = subprocess.run(
-            ["python", str(local_path)],
-            capture_output=True, text=True,
-            timeout=config.SANDBOX_TIMEOUT_SECONDS,
-            cwd=str(artifacts_dir),
-        )
-        stdout = result.stdout
-        stderr = result.stderr
-        exit_code = result.returncode
-    except subprocess.TimeoutExpired:
-        stdout = ""
-        stderr = "Execution timed out."
-        exit_code = -1
-    except Exception as e:
-        log.warning("local_run_failed_fallback", job_id=job_id, error=str(e))
-        # Fall back to simulated demo run
-        return _demo_run(script_content, job_id)
-    finally:
-        local_path.unlink(missing_ok=True)
-
-    duration = round(time.time() - start, 2)
-    parsed = parse(stdout, stderr, exit_code)
-    file_screenshots = [f"/screenshots/{p.name}" for p in sorted(artifacts_dir.glob("*.png"))]
-    parsed["screenshot_paths"] = list(dict.fromkeys((parsed.get("screenshot_paths") or []) + file_screenshots))
-    parsed["duration_seconds"] = duration
-    log.info("local_run_complete", job_id=job_id, exit_code=exit_code, duration=duration)
-    return parsed
 
 
 def _demo_run(script_content: str, job_id: str) -> dict:
-    """Fallback: simulate script execution when local run fails.
+    """Simulate an execution for DEMO_MODE, without Docker or a browser.
 
-    Only marks as reproduced if the script contains an explicit
-    'print("REPRODUCED")' statement, which is the same contract the
-    real evaluate node checks. Otherwise simulates a 'not reproduced' result.
+    It replays the verdict the script would print, so the pipeline can be demonstrated
+    end to end. It proves nothing about the target application, and the result is
+    marked ``simulated`` so the UI and the API never present it as evidence.
     """
     log.info("demo_mode_execution", job_id=job_id)
     time.sleep(2.5)
 
-    lower = script_content.lower()
+    # A simulator cannot know what the page does, so it only checks the one thing it can:
+    # does the script honour the verdict contract? If not, the attempt is refined, exactly
+    # as a real run would be.
+    emits_verdict = VERDICT_PREFIX in script_content
 
-    # The script must explicitly print REPRODUCED — same contract as evaluate_node
-    has_reproduced = 'print("reproduced")' in lower or "print('reproduced')" in lower
-
-    if has_reproduced:
-        stdout = (
-            "Setting up Chrome driver...\n"
-            "Navigating to target page...\n"
-            "Locating form elements...\n"
-            "Entering test credentials...\n"
-            "Submitting the form...\n"
-            "Checking page response...\n"
-            "Bug confirmed: application behaves incorrectly as described in the report\n"
-            "REPRODUCED\n"
-        )
-        stderr = ""
-        exit_code = 0
+    lines = [
+        "SIMULATED RUN — DEMO_MODE is on. No browser started, no page visited.",
+        "This output is generated, not observed. It is not evidence of a real bug.",
+        "Setting up Chrome driver...",
+        "Navigating to target page...",
+        "Executing test steps...",
+    ]
+    if emits_verdict:
+        lines.append(f'{VERDICT_PREFIX} {{"reproduced": true, "variant": "simulated", '
+                     f'"evidence": "SIMULATED — DEMO_MODE did not run a browser"}}')
     else:
-        stdout = (
-            "Setting up Chrome driver...\n"
-            "Navigating to target page...\n"
-            "Executing test steps...\n"
-            "Bug not reproduced\n"
-        )
-        stderr = ""
-        exit_code = 0
+        lines.append("Script printed no AUTOREPRO_RESULT verdict line.")
 
-    result = parse(stdout, stderr, exit_code)
+    stdout = "\n".join(lines) + "\n"
+    result = parse(stdout, "", 0)
     result["duration_seconds"] = 2.5
-    log.info("demo_run_complete", job_id=job_id, exit_code=exit_code, success=has_reproduced)
+    result["simulated"] = True
+    verdict = parse_verdict(stdout)
+    log.info("demo_run_complete", job_id=job_id,
+             reproduced=bool(verdict and verdict["reproduced"]))
     return result
