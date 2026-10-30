@@ -58,11 +58,18 @@ def test_completed_job_exposes_dashboard_fields(client):
     attempt = res["attempts"][0]
     assert attempt["attempt"] == 1
     assert attempt["exit_code"] == 0
-    assert "REPRODUCED" in attempt["stdout"]
+    assert "AUTOREPRO_RESULT" in attempt["stdout"]
+    assert attempt["simulated"] is True, "DEMO_MODE results must be marked simulated"
+    assert res["simulated"] is True
     assert attempt["script"]
 
 
-def test_failed_job_reports_error_stage_and_keeps_progress(client, monkeypatch):
+def test_unreachable_page_still_runs_the_pipeline(client, monkeypatch):
+    """A page that can't be fetched from the API host is not a reason to abandon the job.
+
+    The page may be reachable only from the sandbox network, and a 4xx/5xx page is often
+    the reported symptom itself.
+    """
     def unreachable(*_a, **_k):
         raise ConnectionError("connection refused")
 
@@ -70,9 +77,23 @@ def test_failed_job_reports_error_stage_and_keeps_progress(client, monkeypatch):
     job_id = client.post("/reproduce", json={"bug_report": BUG, "target_url": "http://example.com/login"}).json()["job_id"]
     res = client.get(f"/result/{job_id}").json()
 
+    assert res["status"] == "done"
+    assert res["attempt_count"] >= 1, "the script must still be generated and run"
+    assert res["created_at"]
+
+
+def test_failed_job_reports_error_stage_and_keeps_progress(client, monkeypatch):
+    def boom():
+        raise RuntimeError("generate exploded")
+
+    # The graph is compiled at import time, so break what the node itself calls.
+    monkeypatch.setattr("agent.nodes.generate._get_llm", boom)
+    job_id = client.post("/reproduce", json={"bug_report": BUG, "target_url": "http://example.com/login"}).json()["job_id"]
+    res = client.get(f"/result/{job_id}").json()
+
     assert res["status"] == "failed"
-    assert "connection refused" in res["error"]
-    assert res["stage"] == "inspect", "stage should point at the node that failed"
+    assert "generate exploded" in res["error"]
+    assert res["stage"] == "generate", "stage should point at the node that failed"
     assert res["analysis"], "analysis from the completed analyze node should be kept"
     assert res["created_at"]
 

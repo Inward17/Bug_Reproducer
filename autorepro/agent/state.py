@@ -11,6 +11,7 @@ class FailureType(str, Enum):
     ASSERTION_ERROR      = "AssertionError"
     NETWORK_ERROR        = "NetworkError"
     WRONG_VERIFICATION   = "WrongVerification"
+    BUG_NOT_OBSERVED     = "BugNotObserved"
     FALSE_POSITIVE       = "FalsePositive"
     UNKNOWN              = "Unknown"
 
@@ -27,4 +28,5 @@ class AgentState(TypedDict):
     script:           str
     execution_result: dict
     success:          bool
+    bug_absent:       bool
     history:          list

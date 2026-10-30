@@ -32,6 +32,16 @@ class MockLLM:
                 ],
                 "expected_behavior": "User should be logged in and redirected to dashboard after entering correct credentials",
                 "success_condition": "The text 'Invalid credentials' appears on screen after submitting valid login credentials, proving the bug is reproduced",
+                "bug_variants": [
+                    {
+                        "interpretation": "The server rejects every login attempt",
+                        "success_condition": "Verify the visible body text contains 'Invalid' after submitting valid credentials",
+                    },
+                    {
+                        "interpretation": "The form fails silently and stays on the login page",
+                        "success_condition": "Verify the visible body text still contains 'Sign in' after submitting",
+                    },
+                ],
                 "risk_factors": [
                     "Form may use AJAX instead of traditional submit",
                     "Error element may take time to appear",
@@ -39,26 +49,26 @@ class MockLLM:
                 ]
             }, indent=2))
 
-        if "Write a Python script" in prompt or "Selenium automation expert" in prompt:
-            return MockResponse(self._generate_script(prompt))
-
         if "previously generated" in prompt or "PREVIOUS SCRIPT" in prompt:
             return MockResponse(
-                "The script failed because the URL was not accessible from inside the container. "
-                "Fixed by using the correct host URL.\n\n"
-                + self._generate_script(prompt)
+                "The verification condition looked for a successful redirect instead of the "
+                "error message.\nFixed by checking the visible body text for 'Invalid'.\n\n"
+                "```python\n" + self._script(prompt) + "\n```"
             )
+
+        if "Write a Python script" in prompt or "Selenium automation expert" in prompt:
+            return MockResponse(self._script(prompt))
 
         return MockResponse('{"error": "unknown prompt type"}')
 
-    def _generate_script(self, prompt: str) -> str:
-        """Generate a mock Selenium script."""
-        # Extract target URL from prompt if present
+    def _script(self, prompt: str) -> str:
+        """Generate a mock Selenium script that follows the verdict contract."""
         import re
         url_match = re.search(r'Target URL:\s*(\S+)', prompt)
         target_url = url_match.group(1) if url_match else "http://host.docker.internal:8080/login"
 
-        return f'''import time
+        return f'''import json
+import time
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -67,6 +77,9 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 driver = None
+reproduced = False
+variant = ""
+evidence = ""
 try:
     print("Step 1: Setting up Chrome driver")
     options = Options()
@@ -79,38 +92,38 @@ try:
 
     print("Step 2: Navigating to login page")
     driver.get("{target_url}")
+    driver.save_screenshot("/screenshots/step_1_page_loaded.png")
 
-    print("Step 3: Entering username")
-    username_field = WebDriverWait(driver, 10).until(
+    print("Step 3: Filling in valid credentials")
+    WebDriverWait(driver, 10).until(
         EC.presence_of_element_located((By.ID, "username"))
-    )
-    username_field.send_keys("testuser")
+    ).send_keys("testuser")
+    driver.find_element(By.ID, "password").send_keys("correctpassword123")
+    driver.save_screenshot("/screenshots/step_2_form_filled.png")
 
-    print("Step 4: Entering password")
-    password_field = driver.find_element(By.ID, "password")
-    password_field.send_keys("correctpassword123")
+    print("Step 4: Submitting the form")
+    driver.find_element(By.ID, "submit").click()
+    time.sleep(2)
+    driver.save_screenshot("/screenshots/step_3_after_submit.png")
 
-    print("Step 5: Clicking submit button")
-    submit_button = driver.find_element(By.ID, "submit")
-    submit_button.click()
+    print("Step 5: Reading the page")
+    visible_text = driver.find_element(By.TAG_NAME, "body").text
+    print("PAGE_TEXT:", visible_text[:500])
 
-    print("Step 6: Checking for error message")
-    error_element = WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located((By.ID, "error"))
-    )
+    for needle in ("invalid", "incorrect"):
+        if needle in visible_text.lower():
+            reproduced, variant, evidence = True, "variant 1: error text", needle
+            break
 
-    if "Invalid credentials" in error_element.text:
-        print("Bug confirmed: Login shows Invalid credentials even with correct credentials")
-        print("REPRODUCED")
-    else:
-        raise AssertionError(f"Expected 'Invalid credentials' but got: {{error_element.text}}")
-
+    driver.save_screenshot("/screenshots/step_4_result.png")
 except Exception as e:
     print(f"Error: {{e}}")
     if driver:
         driver.save_screenshot(f"/screenshots/failure_{{int(time.time())}}.png")
     raise
 finally:
+    print("AUTOREPRO_RESULT " + json.dumps(
+        {{"reproduced": reproduced, "variant": variant, "evidence": evidence[:300]}}))
     if driver:
         driver.quit()
 '''

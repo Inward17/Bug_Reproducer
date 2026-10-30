@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from agent.graph import compiled, route_after_evaluate
+from agent.graph import compiled, route_after_evaluate, route_after_refine
 from agent.state import AgentState
 from storage import jobs as job_store
 from storage.artifacts import save_final_script
@@ -40,6 +40,7 @@ def run_agent(bug_report: str, target_url: str, job_id: str | None = None) -> di
         "script": "",
         "execution_result": {},
         "success": False,
+        "bug_absent": False,
         "history": [],
     }
 
@@ -64,8 +65,11 @@ def run_agent(bug_report: str, target_url: str, job_id: str | None = None) -> di
             for node, output in update.items():
                 state = {**state, **(output or {})}
                 stage = _NEXT_STAGE.get(node)
+                # Show the stage the run stopped on, not the one that would have been next.
                 if node == "evaluate" and route_after_evaluate(state) != "refine":
-                    stage = "evaluate"  # the graph is about to end
+                    stage = "evaluate"
+                elif node == "refine" and route_after_refine(state) != "execute":
+                    stage = "refine"
                 job_store.save(job_id, {**record, **state, "status": "processing", "stage": stage})
 
         result = {

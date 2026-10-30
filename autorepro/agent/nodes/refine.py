@@ -1,35 +1,19 @@
 """Node 5 — LLM script refinement: rewrite script based on failure feedback."""
 
-import ast
 import json
-import re
 from pathlib import Path
 
-from agent.state import AgentState
+from agent.common import extract_text, fix_url, parse_script
+from agent.state import AgentState, FailureType
 from utils.llm import get_llm
 from utils.logger import get_logger
 
 log = get_logger(__name__)
 
-
-def _extract_text(content) -> str:
-    """Safely extract text from an LLM response's .content field.
-
-    ChatBedrockConverse returns a list of content blocks like
-    [{"type": "text", "text": "..."}], while other providers return
-    a plain string. This handles both.
-    """
-    if isinstance(content, str):
-        return content.strip()
-    if isinstance(content, list):
-        parts = []
-        for block in content:
-            if isinstance(block, dict) and "text" in block:
-                parts.append(block["text"])
-            elif isinstance(block, str):
-                parts.append(block)
-        return "\n".join(parts).strip()
-    return str(content).strip()
+# The model emits this line when the history convinces it the bug genuinely isn't there.
+BUG_ABSENT_SENTINEL = "AUTOREPRO_CONCLUSION=BUG_ABSENT"
+# Don't trust that conclusion until at least two different strategies have been tried.
+MIN_ATTEMPTS_FOR_ABSENT = 2
 
 
 def _get_llm():
@@ -37,97 +21,76 @@ def _get_llm():
     return get_llm(temperature=0.3)
 
 
-def _extract_script(content: str) -> tuple[str, str]:
-    """Separate LLM explanation text from the Python script.
-
-    The LLM often returns markdown like:
-        ### Explanation\n...\n```python\n<code>\n```
-    We extract the code from within the fences.
-    Returns (refinement_note, script_code).
-    """
-    # Strategy 1: Extract code from ```python ... ``` fences
-    fence_pattern = re.compile(r'```(?:python)?\s*\n(.*?)\n```', re.DOTALL)
-    matches = fence_pattern.findall(content)
-    if matches:
-        # Use the last (most likely corrected) code block
-        script = matches[-1].strip()
-        # Everything before the first fence is the note
-        first_fence = content.find('```')
-        note = content[:first_fence].strip() if first_fence > 0 else content[:200]
-        return note, script
-
-    # Strategy 2: Look for lines starting with Python keywords
-    lines = content.strip().splitlines()
-    python_start_keywords = ('import ', 'from ', 'def ', 'class ', 'try:', 'driver')
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped and any(stripped.startswith(kw) for kw in python_start_keywords):
-            note = " ".join(lines[:i]).strip() if i > 0 else ""
-            script = "\n".join(lines[i:])
-            return note or content[:200], script
-
-    # Fallback: treat entire content as script
-    return content[:200], content.strip()
-
-
-def _fix_url(script: str, target_url: str) -> str:
-    """Ensure the script uses the exact target URL, not LLM-rewritten variants."""
-    import re
-    pattern = re.compile(r'(driver\.get\(|TARGET_URL\s*=\s*)["\']https?://(?:localhost|127\.0\.0\.1)[^"\']*["\']')
-    return pattern.sub(rf'\1"{target_url}"', script)
+def _render_history(history: list) -> str:
+    """Full script plus console output per attempt, so the model can't repeat a mistake."""
+    parts = []
+    for h in history:
+        result = h.get("result", {})
+        parts.append(
+            f"=== ATTEMPT {h['attempt']} ===\n"
+            f"Error type: {result.get('error_type', 'N/A')}\n"
+            f"Refinement note: {h.get('refinement_note', 'N/A')}\n\n"
+            f"--- Script ---\n{h.get('script', 'N/A')}\n\n"
+            f"--- stdout ---\n{result.get('stdout', '')}\n\n"
+            f"--- stderr ---\n{result.get('stderr', '')}\n"
+        )
+    return "\n".join(parts) if parts else "No previous attempts."
 
 
 def refine_node(state: AgentState) -> AgentState:
     """Node 5: LLM rewrites the script based on failure feedback."""
-    # Build full history with complete script and console output per attempt
-    full_history_parts = []
-    for h in state["history"]:
-        attempt_num = h["attempt"]
-        script_code = h.get("script", "N/A")
-        result = h.get("result", {})
-        stdout = result.get("stdout", "")
-        stderr = result.get("stderr", "")
-        error_type = result.get("error_type", "N/A")
-        note = h.get("refinement_note", "N/A")
-
-        part = (
-            f"=== ATTEMPT {attempt_num} ===\n"
-            f"Error type: {error_type}\n"
-            f"Refinement note: {note}\n\n"
-            f"--- Script ---\n{script_code}\n\n"
-            f"--- stdout ---\n{stdout}\n\n"
-            f"--- stderr ---\n{stderr}\n"
-        )
-        full_history_parts.append(part)
-
-    full_history = "\n".join(full_history_parts) if full_history_parts else "No previous attempts."
-
     project_root = Path(__file__).resolve().parent.parent.parent
-    template = (project_root / "prompts" / "refine.txt").read_text()
+    template = (project_root / "prompts" / "refine.txt").read_text(encoding="utf-8")
     prompt   = template.format(
         bug_report=state["bug_report"],
         previous_script=state["script"],
         failure_json=json.dumps(state["execution_result"], indent=2),
-        full_history=full_history,
-        dom_context=state.get("dom_context", "Not available"),
+        full_history=_render_history(state["history"]),
+        dom_context=state.get("dom_context") or "Not available",
         target_url=state["target_url"],
     )
-    llm      = _get_llm()
-    response = llm.invoke(prompt)
-    content  = _extract_text(response.content)
+    llm = _get_llm()
+    note, script = "", None
 
-    refinement_note, corrected_script = _extract_script(content)
-    corrected_script = _fix_url(corrected_script, state["target_url"])
+    # Same validate-and-retry contract as generate_node. Running a script that failed
+    # ast.parse only burned an attempt on a bogus "SecurityViolation".
+    for attempt in range(2):
+        content = extract_text(llm.invoke(prompt).content)
+        note, script = parse_script(content)
+        if script is not None:
+            break
+        log.warning("refine_syntax_error", job_id=state["job_id"], attempt=attempt)
+        if attempt == 0:
+            prompt += ("\n\nYour previous reply did not contain a valid Python script. "
+                       "Return your explanation first, then the COMPLETE script in a "
+                       "```python fenced block.")
 
-    try:
-        ast.parse(corrected_script)
-    except SyntaxError:
-        log.warning("refine_syntax_error", job_id=state["job_id"])
+    concluded_absent = (BUG_ABSENT_SENTINEL in content
+                        and state["attempt_count"] >= MIN_ATTEMPTS_FOR_ABSENT)
+
+    if script is None:
+        log.error("refine_no_valid_script", job_id=state["job_id"])
+        script = state["script"]  # keep the last runnable script rather than shipping prose
+    else:
+        script = fix_url(script, state["target_url"])
 
     updated_history = list(state["history"])
     if updated_history:
-        updated_history[-1] = {**updated_history[-1], "refinement_note": refinement_note}
+        updated_history[-1] = {**updated_history[-1], "refinement_note": note}
 
-    log.info("refine_complete", job_id=state["job_id"], attempt=state["attempt_count"])
-    return {**state, "script": corrected_script, "history": updated_history}
+    patch: AgentState = {**state, "script": script, "history": updated_history}
 
+    if concluded_absent:
+        log.info("refine_bug_absent", job_id=state["job_id"], attempt=state["attempt_count"])
+        patch["bug_absent"] = True
+        patch["execution_result"] = {
+            **state["execution_result"],
+            "error_type": FailureType.FALSE_POSITIVE.value,
+            "error_message": (f"After {state['attempt_count']} attempts with different "
+                              "strategies, the agent concluded the reported bug is not "
+                              "present on this page."),
+        }
+    else:
+        log.info("refine_complete", job_id=state["job_id"], attempt=state["attempt_count"])
+
+    return patch

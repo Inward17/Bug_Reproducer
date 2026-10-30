@@ -58,3 +58,4 @@ autorepro/autorepro_sample*
 
 # Analysis reports
 !docs/analysis/*.md
+venv/
