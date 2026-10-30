@@ -13,6 +13,30 @@ from utils.id_generator import new_job_id
 
 router = APIRouter()
 
+_SUMMARY_KEYS = (
+    "job_id", "status", "success", "stage", "attempt_count", "max_attempts",
+    "bug_report", "target_url", "error", "created_at", "completed_at",
+)
+
+
+def _attempt_summaries(job: dict) -> list[dict]:
+    """Per-attempt details for the UI's attempt timeline."""
+    attempts = []
+    for h in job.get("history", []):
+        result = h.get("result", {})
+        attempts.append({
+            "attempt": h.get("attempt"),
+            "error_type": result.get("error_type"),
+            "error_message": result.get("error_message"),
+            "exit_code": result.get("exit_code"),
+            "duration_seconds": result.get("duration_seconds"),
+            "refinement_note": h.get("refinement_note"),
+            "stdout": result.get("stdout", ""),
+            "stderr": result.get("stderr", ""),
+            "script": h.get("script", ""),
+        })
+    return attempts
+
 
 @router.post("/reproduce", response_model=JobCreatedResponse, status_code=202)
 async def reproduce(request: ReproduceRequest, background_tasks: BackgroundTasks):
@@ -39,7 +63,18 @@ async def get_result(job_id: str):
             detail={"code": "JOB_NOT_FOUND", "message": "No job with that ID exists."},
         )
     if job.get("status") == "processing":
-        return {"job_id": job_id, "status": "processing"}
+        return {
+            "job_id": job_id,
+            "status": "processing",
+            "stage": job.get("stage"),
+            "attempt_count": job.get("attempt_count", 0),
+            "max_attempts": job.get("max_attempts"),
+            "bug_report": job.get("bug_report"),
+            "target_url": job.get("target_url"),
+            "analysis": job.get("analysis") or None,
+            "attempts": _attempt_summaries(job),
+            "created_at": job.get("created_at"),
+        }
 
     screenshots = [
         f"/result/{job_id}/screenshot/{p.name}"
@@ -66,6 +101,13 @@ async def get_result(job_id: str):
         "logs": logs,
         "error_type": execution_result.get("error_type"),
         "stderr": execution_result.get("stderr"),
+        "error": job.get("error"),
+        "stage": job.get("stage"),
+        "max_attempts": job.get("max_attempts"),
+        "bug_report": job.get("bug_report"),
+        "target_url": job.get("target_url"),
+        "analysis": job.get("analysis") or None,
+        "attempts": _attempt_summaries(job),
         "created_at": job.get("created_at"),
         "completed_at": job.get("completed_at"),
     }
@@ -92,6 +134,11 @@ async def get_screenshot(job_id: str, filename: str):
 
 
 @router.get("/jobs")
-async def list_jobs():
-    """List all jobs for the history panel."""
-    return job_store.list_all()
+async def list_jobs(summary: bool = False):
+    """List all jobs for the history panel. `?summary=true` returns light, newest-first rows."""
+    jobs = job_store.list_all()
+    if not summary:
+        return jobs
+    rows = [{key: job.get(key) for key in _SUMMARY_KEYS} for job in jobs]
+    rows.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+    return rows

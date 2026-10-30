@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from agent.graph import compiled
+from agent.graph import compiled, route_after_evaluate
 from agent.state import AgentState
 from storage import jobs as job_store
 from storage.artifacts import save_final_script
@@ -11,6 +11,16 @@ from utils.id_generator import new_job_id
 from utils.logger import get_logger
 
 log = get_logger(__name__)
+
+# Stage that runs after each node completes — lets the UI show live progress.
+_NEXT_STAGE = {
+    "analyze":  "inspect",
+    "inspect":  "generate",
+    "generate": "execute",
+    "execute":  "evaluate",
+    "evaluate": "refine",
+    "refine":   "execute",
+}
 
 
 def run_agent(bug_report: str, target_url: str, job_id: str | None = None) -> dict:
@@ -41,22 +51,42 @@ def run_agent(bug_report: str, target_url: str, job_id: str | None = None) -> di
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
 
+    # Merge into the existing record so fields written by the API (e.g. created_at) survive
+    record = job_store.get(job_id) or {}
+    state = dict(initial_state)
+    stage = "analyze"
+    job_store.save(job_id, {**record, **state, "status": "processing", "stage": stage})
+
     try:
-        final_state = compiled.invoke(initial_state)
+        # Each graph step = analyze/inspect/generate + 3 per attempt; leave headroom
+        run_config = {"recursion_limit": 3 * config.MAX_ATTEMPTS + 10}
+        for update in compiled.stream(initial_state, run_config, stream_mode="updates"):
+            for node, output in update.items():
+                state = {**state, **(output or {})}
+                stage = _NEXT_STAGE.get(node)
+                if node == "evaluate" and route_after_evaluate(state) != "refine":
+                    stage = "evaluate"  # the graph is about to end
+                job_store.save(job_id, {**record, **state, "status": "processing", "stage": stage})
+
         result = {
-            **final_state,
+            **record,
+            **state,
             "status": "done",
-            "final_script": final_state["script"],
+            "stage": None,
+            "final_script": state["script"],
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
         # Persist the final script as a downloadable artifact
-        if final_state.get("script"):
-            save_final_script(job_id, final_state["script"])
+        if state.get("script"):
+            save_final_script(job_id, state["script"])
     except Exception as e:
         log.error("agent_error", job_id=job_id, error=str(e))
+        # Keep whatever progress was made (analysis, attempts) for debugging
         result = {
-            **initial_state,
+            **record,
+            **state,
             "status": "failed",
+            "stage": stage,  # the node that was running when it failed
             "error": str(e),
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }

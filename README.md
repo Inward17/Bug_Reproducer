@@ -14,7 +14,7 @@ AutoRepro accepts a bug report (e.g., *"Login always shows Invalid credentials e
 - 🔍 **DOM Inspection** — Fetches real page HTML and extracts interactive elements, giving the LLM actual CSS selectors instead of guessing
 - 🔄 **Autonomous self-refinement loop** — up to 5 attempts with intelligent error diagnosis
 - 🐳 **Isolated Docker sandboxes** — Chromium + Selenium in memory-limited containers
-- 🌐 **Web UI dashboard** — submit bug reports, view results, browse execution logs & screenshots
+- 🌐 **Web UI dashboard** — run list with search & filters, live pipeline progress, per-attempt drill-down, script/logs/evidence tabs, dark & light themes
 - 📸 **Proof of Execution Timeline** — step-by-step screenshot evidence captured from real browser sessions
 - 🔒 **AST-based security scanning** — blocks dangerous imports/builtins before execution
 - 📁 **Artifact API** — download generated scripts & screenshots via REST
@@ -109,7 +109,7 @@ Not all pipeline steps consume LLM API credits:
 | Backend API | **FastAPI** + Uvicorn | Async endpoints, background task execution |
 | Sandbox | **Docker** | Headless Chromium + Selenium 4.18 in isolated containers |
 | Security | AST-based static analysis | Blocks `os`, `subprocess`, `socket`, `eval`, `exec` etc. |
-| Frontend | Vanilla **HTML/CSS/JS** | Inter + JetBrains Mono fonts, glassmorphism UI |
+| Frontend | Vanilla **HTML/CSS/JS** | No build step; Inter, Space Grotesk + JetBrains Mono; dark/light themes; hash routing (`#/job/<id>`) |
 | Testing | **Pytest** | Unit tests + integration tests with mock LLM |
 | Logging | **structlog** | Structured JSON logging |
 
@@ -402,10 +402,10 @@ LLM_MODEL=qwen2.5-coder:3b
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `POST` | `/reproduce` | Submit a bug report for reproduction. Body: `{"bug_report": "...", "target_url": "..."}` |
-| `GET` | `/result/{job_id}` | Get job status, execution results, history, and script |
+| `GET` | `/result/{job_id}` | Get job status, live `stage`, per-attempt details (`attempts`), `analysis`, `error`, and script |
 | `GET` | `/result/{job_id}/script` | Download the final generated Selenium script |
 | `GET` | `/result/{job_id}/screenshot/{filename}` | View a captured screenshot |
-| `GET` | `/jobs` | List all jobs with status |
+| `GET` | `/jobs` | List all jobs (full records). `?summary=true` returns light rows, newest first |
 | `GET` | `/health` | Health check (verifies Docker daemon connectivity) |
 | `GET` | `/` | Serve the Web UI |
 
@@ -553,11 +553,16 @@ The system uses three carefully crafted prompt templates:
 
 ### Via Web UI
 
-1. Open **http://localhost:8000**
+1. Open **http://localhost:8000** (or click **Use bundled demo** to prefill the demo login bug)
 2. Enter the bug description and target URL
-3. Click **Start Reproduction**
-4. Watch real-time progress as the agent works
-5. View the generated script, execution logs, and **Proof of Execution** screenshot timeline
+3. Click **Start reproduction** (or press `Ctrl/⌘ + Enter`)
+4. Watch the pipeline stepper update live: Analyze → Inspect → Generate → Execute → Evaluate → Refine, with the current attempt number
+5. Explore the run's tabs: **Overview** (the LLM's analysis), **Attempts** (each attempt's outcome, refinement note, script, stdout and stderr), **Script**, **Logs** and **Evidence** (the screenshot timeline with a viewer)
+6. Every run has a shareable link (`/#/job/<id>`). Use **Re-run** to repeat it, and the sidebar to search and filter past runs
+
+![Run detail view](docs/ui-preview/run-reproduced.png)
+
+More previews (live progress, attempt drill-down, light theme, mobile) are in [`docs/ui-preview/`](docs/ui-preview/).
 
 ### Via cURL
 
