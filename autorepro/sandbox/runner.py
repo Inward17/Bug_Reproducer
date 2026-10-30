@@ -11,7 +11,7 @@ from docker.errors import APIError, DockerException, ImageNotFound
 
 from agent.common import VERDICT_PREFIX, parse_verdict
 from sandbox.feedback_parser import parse
-from sandbox.security import check, SecurityError
+from sandbox.security import check
 from utils import config
 from utils.logger import get_logger
 

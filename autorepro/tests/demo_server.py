@@ -1,6 +1,6 @@
 """Demo server: Flask app simulating a buggy login page for E2E testing."""
 
-from flask import Flask, request
+from flask import Flask
 
 app = Flask(__name__)
 
@@ -124,12 +124,13 @@ LOGIN_PAGE = """<!DOCTYPE html>
     <div class="bug-explainer">
       <h3>🐛 Intentional Bug <span class="bug-tag">FOR DEMO</span></h3>
       <p>
-        This login page has a <strong>hardcoded authentication bug</strong>.
-        The server <code>always returns "Invalid credentials"</code> regardless of what
-        username and password you enter — even with correct ones.
-        The backend never actually validates the credentials against a database;
-        it unconditionally rejects every login attempt. AutoRepro will detect and
-        reproduce this bug automatically.
+        This login page has a <strong>hardcoded authentication defect</strong>: the server
+        rejects every sign-in attempt, whatever credentials you type. It never checks them
+        against a database.
+      </p>
+      <p>
+        The wording of the rejection appears only after you submit, so a reproduction
+        script has to actually drive the form to see it. AutoRepro will find it.
       </p>
     </div>
   </div>

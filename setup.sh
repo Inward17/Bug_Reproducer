@@ -1,109 +1,118 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # =============================================================
-# AutoRepro — EC2 Setup Script
-# Run this once on a fresh Ubuntu 24.04 EC2 instance.
-# Usage: bash setup.sh
+# AutoRepro — EC2 setup script
+# Run once on a fresh Ubuntu 24.04 instance:  bash setup.sh
+#
+# Docker commands run through sudo, because group membership added by this
+# script only applies to a new login session. Log out and back in afterwards
+# to use docker without sudo.
 # =============================================================
 
-set -e  # stop on any error
+set -euo pipefail
 
-echo ""
+REPO_URL="${AUTOREPRO_REPO_URL:-https://github.com/Inward17/Bug_Reproducer.git}"
+REPO_DIR="${AUTOREPRO_REPO_DIR:-Bug_Reproducer}"
+
+echo
 echo "======================================"
 echo "  AutoRepro EC2 Setup — Starting..."
 echo "======================================"
-echo ""
+echo
 
 # --------------------------------------------------------------
-# 1. System update
+# 1. System packages
 # --------------------------------------------------------------
 echo "[1/7] Updating system packages..."
-sudo apt-get update -y && sudo apt-get upgrade -y
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
 sudo apt-get install -y curl git unzip jq
 
 # --------------------------------------------------------------
-# 2. Install Docker
+# 2. Docker
 # --------------------------------------------------------------
-echo "[2/7] Installing Docker..."
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER
-
-echo "[2/7] Installing Docker Compose plugin..."
-sudo apt-get install -y docker-compose-plugin
-
-# Activate docker group without requiring logout
-echo "[2/7] Activating docker group for current session..."
-newgrp docker << 'DOCKERGROUP'
-
-# --------------------------------------------------------------
-# 3. Clone the repository
-# --------------------------------------------------------------
-echo "[3/7] Cloning AutoRepro repository..."
-REPO_URL="https://github.com/Inward17/Bug_Reproducer.git"
-
-if [ -d "Bug_Reproducer" ]; then
-  echo "  → Directory 'Bug_Reproducer' already exists, pulling latest..."
-  cd Bug_Reproducer && git pull && cd ..
+if command -v docker >/dev/null 2>&1; then
+  echo "[2/7] Docker already installed, skipping."
 else
-  git clone $REPO_URL
+  echo "[2/7] Installing Docker..."
+  curl -fsSL https://get.docker.com | sh
 fi
-
-cd Bug_Reproducer
+sudo apt-get install -y docker-compose-plugin
+sudo usermod -aG docker "$USER"
 
 # --------------------------------------------------------------
-# 4. Create .env.production from template
+# 3. Repository
+# --------------------------------------------------------------
+echo "[3/7] Fetching AutoRepro..."
+if [ -d "$REPO_DIR/.git" ]; then
+  echo "  -> $REPO_DIR exists, pulling latest..."
+  git -C "$REPO_DIR" pull --ff-only
+else
+  git clone "$REPO_URL" "$REPO_DIR"
+fi
+cd "$REPO_DIR"
+
+# --------------------------------------------------------------
+# 4. Environment file
 # --------------------------------------------------------------
 echo "[4/7] Setting up environment variables..."
-
-if [ ! -f ".env.production" ]; then
-  cp .env.production.template .env.production
-  echo ""
-  echo "  ⚠️  ACTION REQUIRED:"
-  echo "  Open .env.production and fill in your API key:"
-  echo "  $ nano .env.production"
-  echo ""
-  echo "  Once done, press ENTER to continue..."
-  read -r
+if [ -f ".env.production" ]; then
+  echo "  -> .env.production already exists, keeping it."
 else
-  echo "  → .env.production already exists, skipping."
+  cp .env.production.template .env.production
+  echo
+  echo "  ACTION REQUIRED: fill in your API keys."
+  echo "    \$ nano $(pwd)/.env.production"
+  echo
+  echo "  At minimum set LLM_PROVIDER and that provider's key. Before putting this"
+  echo "  host on the public internet also set API_KEY and ALLOW_PRIVATE_TARGETS=false."
+  echo
+  # Read from the terminal, not from stdin: stdin may be a pipe (curl | bash).
+  if [ -r /dev/tty ]; then
+    read -r -p "  Press ENTER once .env.production is filled in... " _ < /dev/tty
+  else
+    echo "  Non-interactive shell: edit .env.production, then re-run this script."
+    exit 1
+  fi
 fi
 
 # --------------------------------------------------------------
-# 5. Create data directories
+# 5. Data directories
 # --------------------------------------------------------------
 echo "[5/7] Creating data directories..."
 mkdir -p data/jobs data/artifacts
 chmod 755 data
 
 # --------------------------------------------------------------
-# 6. Build Docker images
+# 6. Images
 # --------------------------------------------------------------
 echo "[6/7] Building Docker images (this may take 5-10 minutes)..."
-docker compose --profile build-only -f docker-compose.prod.yml build
-
-echo "[6/7] Pre-building sandbox image..."
-docker build -t autorepro-sandbox:latest ./autorepro/sandbox/
+sudo docker compose --profile build-only -f docker-compose.prod.yml build
 
 # --------------------------------------------------------------
-# 7. Start the application
+# 7. Start
 # --------------------------------------------------------------
 echo "[7/7] Starting AutoRepro..."
-docker compose -f docker-compose.prod.yml up -d
+# HOST_DATA_DIR in the compose file resolves against this directory.
+sudo PWD="$(pwd)" docker compose -f docker-compose.prod.yml up -d
 
-echo ""
+PUBLIC_HOST="$(curl -s --max-time 3 http://169.254.169.254/latest/meta-data/public-hostname || true)"
+
+echo
 echo "======================================"
-echo "  ✅ AutoRepro is running!"
+echo "  AutoRepro is running"
 echo "======================================"
-echo ""
-echo "  Local URL:    http://localhost:8000
-  Public URL:   http://ec2-3-239-28-71.compute-1.amazonaws.com:8000"
-echo ""
-echo "  To get your public URL, run:"
-echo "  $ curl -s http://169.254.169.254/latest/meta-data/public-hostname"
-echo ""
+echo
+echo "  Local URL:   http://localhost:8000"
+if [ -n "$PUBLIC_HOST" ]; then
+  echo "  Public URL:  http://$PUBLIC_HOST:8000"
+else
+  echo "  Public URL:  run 'curl -s http://169.254.169.254/latest/meta-data/public-hostname'"
+fi
+echo
 echo "  Useful commands:"
-echo "  - View logs:    docker compose -f docker-compose.prod.yml logs -f"
-echo "  - Stop app:     docker compose -f docker-compose.prod.yml down"
-echo "  - Restart app:  docker compose -f docker-compose.prod.yml restart"
-echo ""
-
-DOCKERGROUP
+echo "  - View logs:   sudo docker compose -f docker-compose.prod.yml logs -f"
+echo "  - Stop app:    sudo docker compose -f docker-compose.prod.yml down"
+echo "  - Restart app: sudo docker compose -f docker-compose.prod.yml restart"
+echo
+echo "  Log out and back in to run docker without sudo."
+echo

@@ -1,12 +1,12 @@
 """FastAPI endpoint handlers for AutoRepro API."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, Header, HTTPException, Query
 from fastapi.responses import FileResponse
 
-from api.schemas import ReproduceRequest, JobCreatedResponse
 from agent.orchestrator import run_agent
+from api.schemas import JobCreatedResponse, ReproduceRequest
 from storage import jobs as job_store
 from storage.artifacts import existing_artifacts_dir, screenshot_path
 from utils import config
@@ -14,14 +14,19 @@ from utils.id_generator import new_job_id
 from utils.net import BlockedTargetError, check_target
 
 
-def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
+def require_api_key(
+    x_api_key: str | None = Header(default=None),
+    autorepro_api_key: str | None = Cookie(default=None),
+) -> None:
     """Enforce the shared API key, when one is configured.
 
     With API_KEY unset the API is open, which is only appropriate on localhost.
+    The cookie is accepted as well because a browser can't put a header on an
+    ``<img src>`` request, and the screenshot route serves those.
     """
     if not config.API_KEY:
         return
-    if x_api_key != config.API_KEY:
+    if config.API_KEY not in (x_api_key, autorepro_api_key):
         raise HTTPException(
             status_code=401,
             detail={"code": "UNAUTHORIZED", "message": "A valid X-API-Key header is required."},
@@ -96,7 +101,7 @@ async def reproduce(request: ReproduceRequest, background_tasks: BackgroundTasks
         "stage": "analyze",
         "bug_report": str(request.bug_report),
         "target_url": target_url,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
     })
     background_tasks.add_task(run_agent, str(request.bug_report), target_url, job_id)
     return JobCreatedResponse(job_id=job_id, status="processing")

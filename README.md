@@ -52,8 +52,8 @@ AutoRepro accepts a bug report (e.g., *"Login always shows Invalid credentials e
 | **Inspect** | HTTP | Fetches the target URL with `requests` + `BeautifulSoup`, extracts all interactive elements (`<a>`, `<button>`, `<input>`, `<form>`, etc.) with their real IDs, classes, text content, and attributes. Passes this DOM context to the LLM — **no API credits consumed** |
 | **Generate** | LLM | Writes a complete Python/Selenium script using real DOM selectors. Includes JS-based page reload detection, complete imports, and screenshot evidence capture |
 | **Execute** | Docker | Writes script to disk, runs it inside an isolated Docker container with headless Chromium. Captures stdout, stderr, exit code, screenshots |
-| **Evaluate** | Deterministic | Checks if `REPRODUCED` appears in stdout. Classifies failures: `Timeout`, `ElementNotFound`, `WrongVerification`, `NetworkError`, `Unknown` |
-| **Refine** | LLM | Receives the original bug report, failed script, execution result, DOM context, and full attempt history. Diagnoses the issue and rewrites the script |
+| **Evaluate** | Deterministic | Parses the script's single `AUTOREPRO_RESULT` JSON line and requires a clean exit. Classifies failures: `BugNotObserved`, `WrongVerification`, `Timeout`, `ElementNotFound`, `NetworkError`, `SyntaxError`, `SecurityViolation`, `Unknown` |
+| **Refine** | LLM | Receives the original bug report, failed script, execution result, DOM context, and full attempt history. Diagnoses the issue and rewrites the script. After two differing strategies it may conclude the bug is absent, which ends the run |
 
 ### State Machine (LangGraph)
 
@@ -108,7 +108,7 @@ Not all pipeline steps consume LLM API credits:
 | DOM Inspector | **BeautifulSoup** + requests | Real element extraction — no LLM credits used |
 | Backend API | **FastAPI** + Uvicorn | Async endpoints, background task execution |
 | Sandbox | **Docker** | Headless Chromium + Selenium 4.18 in isolated containers |
-| Security | AST-based static analysis | Blocks `os`, `subprocess`, `socket`, `eval`, `exec` etc. |
+| Security | AST allow-list + container hardening | Only `selenium`, `json`, `time`, `re` and a short list of stdlib modules; `cap_drop=ALL`, no-new-privileges, pids limit |
 | Frontend | Vanilla **HTML/CSS/JS** | No build step; Inter, Space Grotesk + JetBrains Mono; dark/light themes; hash routing (`#/job/<id>`) |
 | Testing | **Pytest** | Unit tests + integration tests with mock LLM |
 | Logging | **structlog** | Structured JSON logging |
@@ -121,11 +121,15 @@ Not all pipeline steps consume LLM API credits:
 Bug_Reproducer/                   # Repository root
 ├── Dockerfile                    # API container image (Python 3.11 + uvicorn)
 ├── docker-compose.prod.yml       # Production Docker Compose (API + sandbox build)
-├── env.production.template       # Template for production .env.production
+├── .env.production.template      # Template for production .env.production
 ├── setup.sh                      # One-command EC2 setup script
+├── pyproject.toml                # ruff configuration
+├── .github/workflows/ci.yml      # Tests, lint, image builds, shellcheck
+├── docs/analysis/                # Independent review + verify_bugs.py regression checklist
 │
 └── autorepro/                    # Python application
     ├── agent/                    # LangGraph agent (core logic)
+    │   ├── common.py             # Verdict parsing, fence stripping, URL fixing (shared)
     │   ├── graph.py              # State machine wiring & conditional edges
     │   ├── orchestrator.py       # Public entrypoint — runs full agent loop
     │   ├── state.py              # AgentState TypedDict & FailureType enum
@@ -168,6 +172,7 @@ Bug_Reproducer/                   # Repository root
     │
     ├── utils/
     │   ├── config.py             # Central config (reads .env)
+    │   ├── net.py                # SSRF guard for server-side target fetches
     │   ├── logger.py             # structlog setup
     │   ├── id_generator.py       # UUID job ID generator
     │   └── mock_llm.py           # Mock LLM for offline testing
@@ -379,8 +384,9 @@ LLM_MODEL=qwen2.5-coder:3b
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LLM_PROVIDER` | `ollama` | LLM provider: `bedrock`, `google`, `anthropic`, `openai`, `ollama` |
+| `LLM_PROVIDER` | `ollama` | LLM provider: `bedrock`, `google`, `anthropic`, `openai`, `ollama`, `auto` (try each in turn), `mock` (offline tests) |
 | `LLM_MODEL` | `qwen2.5-coder:3b` | Model name/ID for the chosen provider |
+| `BEDROCK_MODEL` / `ANTHROPIC_MODEL` / `GOOGLE_MODEL` / `OLLAMA_MODEL` | `LLM_MODEL` | Per-provider override, used by `LLM_PROVIDER=auto` |
 | `AWS_ACCESS_KEY_ID` | — | AWS credentials (for Bedrock provider) |
 | `AWS_SECRET_ACCESS_KEY` | — | AWS credentials (for Bedrock provider) |
 | `AWS_DEFAULT_REGION` | `us-east-1` | AWS region (for Bedrock provider) |
@@ -391,9 +397,16 @@ LLM_MODEL=qwen2.5-coder:3b
 | `SANDBOX_TIMEOUT_SECONDS` | `60` | Timeout for each Docker script execution |
 | `SANDBOX_MEMORY_MB` | `512` | Memory limit for Docker sandbox containers |
 | `SANDBOX_IMAGE` | `autorepro-sandbox:latest` | Docker image name for the sandbox |
+| `SANDBOX_PIDS_LIMIT` | `256` | Process limit inside a sandbox container |
+| `SANDBOX_READ_ONLY` | `false` | Read-only rootfs + tmpfs for the sandbox. Run the demo once after enabling |
+| `MAX_CONCURRENT_SANDBOXES` | `4` | Sandbox containers allowed to run at once |
+| `API_KEY` | — | When set, every API call needs a matching `X-API-Key` header |
+| `CORS_ORIGINS` | — | Comma-separated origins allowed to call the API from a browser. Empty means none; the bundled UI is same-origin |
+| `ALLOW_PRIVATE_TARGETS` | `true` | Allow targets on private/loopback addresses. Set `false` in production. Link-local and cloud metadata addresses are always refused |
+| `HOST_DATA_DIR` | — | Host path of `DATA_DIR`, required when the API itself runs in a container |
 | `DATA_DIR` | `./data` | Directory for job data & artifacts |
 | `LOG_LEVEL` | `INFO` | Logging level |
-| `DEMO_MODE` | `false` | Enable simulated execution mode (no Docker needed) |
+| `DEMO_MODE` | `false` | Simulate execution without Docker or a browser. Clearly marked in the API and UI, and never real evidence |
 
 ---
 
@@ -406,7 +419,7 @@ LLM_MODEL=qwen2.5-coder:3b
 | `GET` | `/result/{job_id}/script` | Download the final generated Selenium script |
 | `GET` | `/result/{job_id}/screenshot/{filename}` | View a captured screenshot |
 | `GET` | `/jobs` | List all jobs (full records). `?summary=true` returns light rows, newest first |
-| `GET` | `/health` | Health check (verifies Docker daemon connectivity) |
+| `GET` | `/health` | Pings the Docker daemon. `200` when usable, `503` with `docker_error` when not |
 | `GET` | `/` | Serve the Web UI |
 
 ---
@@ -424,7 +437,7 @@ AutoRepro's key insight: **"reproducing a bug" means proving the bug EXISTS**, n
 2. **Inspect DOM** — Fetches the login page HTML, finds the actual `<form>`, `<input>`, and `<button>` elements with their real IDs and classes
 3. **Generate** — Creates a Selenium script using the real selectors (not guessing)
 4. **Execute** — Runs the script in Docker, captures screenshots at each step
-5. **Evaluate** — Checks if `REPRODUCED` was printed
+5. **Evaluate** — Parses the script's `AUTOREPRO_RESULT` line and checks the exit code
 6. **Refine** — If it failed, analyzes the error and rewrites the script (up to 5 times)
 
 **Generated script pattern:**
@@ -445,10 +458,32 @@ login_button.click()
 time.sleep(2)
 driver.save_screenshot("/screenshots/step_3_after_submit.png")
 
-# 4. Check for the BUG (error message), NOT the happy path
-if "Invalid" in driver.page_source:
-    print("REPRODUCED")  # Bug confirmed!
+# 4. Check for the BUG (error message), NOT the happy path.
+#    Read visible text, never page_source: HTML attributes and inline JS
+#    match generic words like "error" and cause false positives.
+visible_text = driver.find_element(By.TAG_NAME, "body").text
+print("PAGE_TEXT:", visible_text[:500])          # logged, never a verdict
+
+reproduced = "invalid" in visible_text.lower()
+
+# 5. Report the verdict on exactly one machine-readable line
+print("AUTOREPRO_RESULT " + json.dumps({
+    "reproduced": reproduced,
+    "variant": "variant 1: error text",
+    "evidence": visible_text[:300],
+}))
 ```
+
+### The verdict contract
+
+`AUTOREPRO_RESULT <json>` is the only thing that decides a run, and the run also has to
+exit cleanly. Everything else the script prints — step logs, page text, the word
+"reproduced" in a sentence — is logged and ignored.
+
+That matters because free-text matching produced confident, wrong answers: a script that
+crashed right after logging *"Step 4: checking whether the bug is reproduced"* was reported
+as **Bug Reproduced**, and a page that happened to contain "no bug found" ended the run as
+a false positive.
 
 ### Failure Classification
 
@@ -456,11 +491,19 @@ When a script fails, the evaluate node classifies the failure type to help the r
 
 | Failure Type | Cause | Refine Strategy |
 |-------------|-------|-----------------|
+| `BugNotObserved` | Script ran fine and reported `reproduced: false` | Read the `PAGE_TEXT` logs and verify a different condition |
+| `WrongVerification` | Script exited cleanly but printed no verdict line | Add the verdict line on every path |
 | `Timeout` | Element selector is wrong | Try alternative CSS selectors |
 | `ElementNotFound` | Element doesn't exist | Check HTML structure |
-| `WrongVerification` | Script ran OK but didn't print REPRODUCED | Fix the verification logic |
-| `NetworkError` | Target URL unreachable | Check connectivity |
+| `NetworkError` | Target unreachable (matched on stderr) | Keep the URL, fix the rest |
+| `SyntaxError` | The reply wasn't valid Python | Return a complete fenced script |
+| `SecurityViolation` | Imported a module outside the allow-list | Use only the permitted imports |
+| `FalsePositive` | Refine concluded the bug isn't present | Run ends, no further attempts |
 | `Unknown` | Unexpected error | General debugging |
+
+`BugNotObserved` is the most common first-attempt outcome, and it is refined like any other
+failure. Only `FalsePositive` — which refine alone can conclude, after at least two
+different strategies — ends a run early.
 
 ---
 
@@ -483,6 +526,8 @@ Then in the Web UI at **http://localhost:8000**, submit:
 
 ### Automated Tests
 
+No API keys and no Docker needed — the suite runs on the mock LLM.
+
 ```bash
 # Windows (PowerShell) — set env var inline
 $env:LLM_PROVIDER="mock"; python -m pytest tests/ -v
@@ -490,6 +535,33 @@ $env:LLM_PROVIDER="mock"; python -m pytest tests/ -v
 # macOS / Linux
 LLM_PROVIDER=mock pytest tests/ -v
 ```
+
+| File | Covers |
+|---|---|
+| `test_agent_core.py` | The verdict truth table, routing, the failure-classification table, the shared helpers, and the analyze/refine nodes |
+| `test_api_security.py` | Path safety, job-ID validation, API-key enforcement, the SSRF guard, the script scanner |
+| `test_ui_api.py` | The fields the dashboard reads: live `stage`, per-attempt rows, errors, job summaries |
+| `test_demo_server.py` | The demo page shows no sign of the bug until the form is submitted |
+| `test_llm_fallback.py`, `test_bedrock_fallback.py` | Provider selection, caching, the Bedrock Converse fallback |
+
+### Regression checklist
+
+`docs/analysis/` holds an independent review of the codebase, and `verify_bugs.py` re-runs
+its verifiable findings against the current code in a few seconds:
+
+```bash
+# from inside autorepro/
+python ../docs/analysis/verify_bugs.py
+```
+
+Each line prints `CONFIRMED` (still present) or `fixed`. Everything reports `fixed` on this
+branch, and CI fails if that stops being true.
+
+### CI
+
+`.github/workflows/ci.yml` runs on every push and pull request: pytest with the mock LLM,
+the regression checklist, `ruff check`, both Docker image builds, and `shellcheck` on
+`setup.sh`.
 
 ### Flame Graph Profiling on macOS
 
@@ -528,12 +600,73 @@ Notes:
 
 ## Security
 
-Generated scripts are statically analyzed via AST before execution:
+### Before you expose this
 
-- **Blocked imports:** `os`, `subprocess`, `socket`, `shutil`, `sys`, `pathlib`
-- **Blocked builtins:** `eval()`, `exec()`, `compile()`, `__import__()`
-- **File access:** `open()` only allowed for `/screenshots/` paths
-- **Container isolation:** 512MB memory limit, 1 CPU core, non-root user (UID 1000)
+AutoRepro runs LLM-written code and fetches URLs that callers choose. With the defaults it
+is a local development tool. For anything reachable by other people:
+
+| Setting | Why |
+|---|---|
+| `API_KEY=<something long>` | Otherwise anyone who finds port 8000 can spend your LLM budget, start containers and read every job |
+| `CORS_ORIGINS=https://your-ui` | Only needed for a separately hosted frontend; leave empty for the bundled UI |
+| `ALLOW_PRIVATE_TARGETS=false` | Stops the inspect step being used to reach services inside your network |
+| IMDSv2 on EC2 | Defence in depth for instance credentials |
+| A reverse proxy with TLS | The app speaks plain HTTP |
+
+With `API_KEY` set, the bundled UI needs the same key. Open the dashboard and run this
+once in the browser console:
+
+```js
+localStorage.setItem('autorepro_api_key', '<the key>'); location.reload();
+```
+
+The UI sends it as `X-API-Key`, and mirrors it into a same-origin cookie so screenshot
+`<img>` loads are authorised too.
+
+The API container also mounts the Docker socket, which is root-equivalent on the host. A
+least-privilege runner (or a socket proxy restricted to container create/start/wait/remove)
+is the next step and is tracked in [the roadmap](docs/analysis/03-upgrade-roadmap.md).
+
+### Script scanning (allow-list)
+
+Generated scripts are parsed before execution and rejected unless they stay inside a known
+API surface:
+
+- **Allowed imports:** `selenium.*`, `json`, `time`, `re`, `datetime`, `math`, `random`,
+  `string`, and a short list of other pure-stdlib modules
+- **Blocked builtins:** `eval`, `exec`, `compile`, `__import__`, `getattr`, `globals`,
+  `locals`, `vars`, `input`, `breakpoint`
+- **Blocked dunder access:** `__class__`, `__subclasses__`, `__globals__` and friends — the
+  usual route from any object back to the interpreter
+- **File access:** `open()` only on a literal path under `/screenshots/`
+
+This is lint, not a boundary. A deny-list of module names was the previous design and
+`importlib.import_module('o' + 's')` walked straight through it. The container is the
+boundary.
+
+### Sandbox isolation
+
+- 512MB memory, 1 CPU core, 256 process limit
+- Non-root user (UID 1000), `cap_drop=ALL`, `no-new-privileges`
+- One fresh container per attempt, removed afterwards
+- At most `MAX_CONCURRENT_SANDBOXES` at a time
+- Optional read-only rootfs with tmpfs (`SANDBOX_READ_ONLY=true`)
+
+Sandboxes still have outbound network access, because they have to reach the target site.
+
+### Target vetting
+
+`POST /reproduce` resolves the target's DNS and refuses link-local and cloud metadata
+addresses (`169.254.0.0/16` and the IPv6 equivalents) outright — a request for
+`http://169.254.169.254/...` is rejected with `400 TARGET_NOT_ALLOWED` rather than being
+fetched and rendered into a downloadable artifact. With `ALLOW_PRIVATE_TARGETS=false` all
+private and loopback ranges are refused too.
+
+### Artifact access
+
+Job IDs are validated as single path segments, read endpoints never create directories, and
+the screenshot route serves only plain `*.png` names resolved inside the job's own folder —
+so generated files such as `dom.html` and `attempt_N.py` are not downloadable.
 
 ---
 
@@ -598,7 +731,7 @@ The repo includes a fully automated setup script for Ubuntu 24.04 EC2 instances.
 
 ```bash
 # 1. SSH into your EC2 instance
-ssh -i your-key.pem ubuntu@ec2-3-239-28-71.compute-1.amazonaws.com
+ssh -i your-key.pem ubuntu@<your-ec2-public-hostname>
 
 # 2. Download and run the setup script
 curl -O https://raw.githubusercontent.com/Inward17/Bug_Reproducer/main/setup.sh
@@ -612,13 +745,21 @@ The script will:
 4. Build the API + sandbox Docker images
 5. Start the app with `docker compose`
 
-**Your app will be live at:**  
-`http://ec2-3-239-28-71.compute-1.amazonaws.com:8000`
+**Your app will be live at:** `http://<your-ec2-public-hostname>:8000`
+
+The script prints the hostname when it finishes, or:
+
+```bash
+curl -s http://169.254.169.254/latest/meta-data/public-hostname
+```
 
 ### Production Environment Variables
 
-Copy `env.production.template` to `.env.production` and fill in your keys.  
-See the **Environment Variables** section above for the full list.
+Copy `.env.production.template` to `.env.production` and fill in your keys
+(`setup.sh` does this for you). See **Environment Variables** above for the full list.
+
+Before the host is reachable from the internet, set `API_KEY` and
+`ALLOW_PRIVATE_TARGETS=false`. See **Security** below.
 
 ### Useful Production Commands
 
@@ -636,19 +777,29 @@ docker compose -f docker-compose.prod.yml down
 git pull && docker compose -f docker-compose.prod.yml up -d --build
 ```
 
+> `docker-compose.prod.yml` passes `HOST_DATA_DIR=${PWD}/data` and needs to be run from the
+> repository root: the API container asks the **host** daemon for sandbox containers, so bind
+> mounts have to be host paths. Without it Docker silently creates empty directories and no
+> screenshot ever reaches the UI.
+
 ---
 
 ## Troubleshooting
 
 | Issue | Cause | Solution |
 |-------|-------|----------|
-| `docker_daemon_ok` not shown on startup | Docker Desktop not running | Start Docker Desktop |
+| `/health` returns 503 with `docker_error` | Docker not running, or the socket isn't readable | Start Docker Desktop; on Linux check group membership |
+| `Sandbox image ... is missing` | The sandbox image was never built | `docker build -t autorepro-sandbox:latest ./sandbox` |
 | `authentication_error: invalid x-api-key` | Wrong API key in `.env` | Check key format, no quotes or spaces |
 | `ResourceNotFoundException` on Bedrock | Anthropic use case form not submitted | Run the Python setup commands above |
 | `INVALID_PAYMENT_INSTRUMENT` on Bedrock | No payment method on AWS account | Add a credit card in AWS Billing |
 | `NameError: name 'EC' is not defined` | Using Ollama 3B model | Switch to a cloud LLM provider (Gemini free, Bedrock, etc.) |
 | `TimeoutException` in scripts | Element selector is wrong | DOM inspection should prevent this; check if the target site is accessible |
-| Screenshots not appearing | Script crashes before screenshot step | Check execution logs for errors |
+| Screenshots not appearing | Script crashes before the screenshot step | Check the Attempts tab for that attempt's stderr |
+| Screenshots missing only in Docker Compose | `HOST_DATA_DIR` not set, so the host daemon can't see the bind path | Run compose from the repo root so `${PWD}` resolves |
+| `WrongVerification` on every attempt | The model isn't printing the `AUTOREPRO_RESULT` line | Usually a small local model; switch to a cloud provider |
+| `400 TARGET_NOT_ALLOWED` | The target resolves to a metadata or (with `ALLOW_PRIVATE_TARGETS=false`) private address | Use a reachable public target, or allow private targets for local testing |
+| `401` from every endpoint | `API_KEY` is set | Send the matching `X-API-Key` header |
 
 ---
 

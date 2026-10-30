@@ -1,7 +1,7 @@
 """AgentState TypedDict and FailureType enum — single source of truth for agent data."""
 
-from typing import TypedDict
 from enum import Enum
+from typing import TypedDict
 
 
 class FailureType(str, Enum):

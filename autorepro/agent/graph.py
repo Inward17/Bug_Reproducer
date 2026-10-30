@@ -1,14 +1,14 @@
 """LangGraph state machine definition — nodes, edges, and conditional routing."""
 
-from langgraph.graph import StateGraph, END
+from langgraph.graph import END, StateGraph
 
-from agent.state import AgentState, FailureType
-from agent.nodes.analyze  import analyze_node
-from agent.nodes.inspect  import inspect_node
-from agent.nodes.generate import generate_node
-from agent.nodes.execute  import execute_node
+from agent.nodes.analyze import analyze_node
 from agent.nodes.evaluate import evaluate_node
-from agent.nodes.refine   import refine_node
+from agent.nodes.execute import execute_node
+from agent.nodes.generate import generate_node
+from agent.nodes.inspect import inspect_node
+from agent.nodes.refine import refine_node
+from agent.state import AgentState, FailureType
 
 
 def route_after_evaluate(state: AgentState) -> str:

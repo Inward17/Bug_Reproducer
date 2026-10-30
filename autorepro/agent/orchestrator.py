@@ -1,6 +1,6 @@
 """Public entrypoint — runs the full agent loop and persists the result."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from agent.graph import compiled, route_after_evaluate, route_after_refine
 from agent.state import AgentState
@@ -49,7 +49,7 @@ def run_agent(bug_report: str, target_url: str, job_id: str | None = None) -> di
         job_store.save(job_id, {
             **initial_state,
             "status": "processing",
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         })
 
     # Merge into the existing record so fields written by the API (e.g. created_at) survive
@@ -78,7 +78,7 @@ def run_agent(bug_report: str, target_url: str, job_id: str | None = None) -> di
             "status": "done",
             "stage": None,
             "final_script": state["script"],
-            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "completed_at": datetime.now(UTC).isoformat(),
         }
         # Persist the final script as a downloadable artifact
         if state.get("script"):
@@ -92,7 +92,7 @@ def run_agent(bug_report: str, target_url: str, job_id: str | None = None) -> di
             "status": "failed",
             "stage": stage,  # the node that was running when it failed
             "error": str(e),
-            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "completed_at": datetime.now(UTC).isoformat(),
         }
 
     job_store.save(job_id, result)
