@@ -777,10 +777,15 @@ docker compose -f docker-compose.prod.yml down
 git pull && docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-> `docker-compose.prod.yml` passes `HOST_DATA_DIR=${PWD}/data` and needs to be run from the
-> repository root: the API container asks the **host** daemon for sandbox containers, so bind
-> mounts have to be host paths. Without it Docker silently creates empty directories and no
-> screenshot ever reaches the UI.
+> `docker-compose.prod.yml` requires `HOST_DATA_DIR` — the absolute host path of `./data` —
+> in a `.env` file next to it (`setup.sh` writes it). The API container asks the **host**
+> daemon for sandbox containers, so bind mounts have to be host paths; without it Docker
+> silently creates empty directories and no screenshot ever reaches the UI. Compose refuses
+> to start if it's missing. Setting it up by hand:
+>
+> ```bash
+> echo "HOST_DATA_DIR=$(pwd)/data" >> .env
+> ```
 
 ---
 
@@ -796,7 +801,7 @@ git pull && docker compose -f docker-compose.prod.yml up -d --build
 | `NameError: name 'EC' is not defined` | Using Ollama 3B model | Switch to a cloud LLM provider (Gemini free, Bedrock, etc.) |
 | `TimeoutException` in scripts | Element selector is wrong | DOM inspection should prevent this; check if the target site is accessible |
 | Screenshots not appearing | Script crashes before the screenshot step | Check the Attempts tab for that attempt's stderr |
-| Screenshots missing only in Docker Compose | `HOST_DATA_DIR` not set, so the host daemon can't see the bind path | Run compose from the repo root so `${PWD}` resolves |
+| Screenshots missing only in Docker Compose | `HOST_DATA_DIR` wrong, so the host daemon can't see the bind path | Put the absolute path of `./data` in `.env` as `HOST_DATA_DIR` |
 | `WrongVerification` on every attempt | The model isn't printing the `AUTOREPRO_RESULT` line | Usually a small local model; switch to a cloud provider |
 | `400 TARGET_NOT_ALLOWED` | The target resolves to a metadata or (with `ALLOW_PRIVATE_TARGETS=false`) private address | Use a reachable public target, or allow private targets for local testing |
 | `401` from every endpoint | `API_KEY` is set | Send the matching `X-API-Key` header |

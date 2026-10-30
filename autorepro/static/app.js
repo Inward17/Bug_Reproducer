@@ -246,9 +246,11 @@ async function checkHealth() {
         await api('/health');
         badge.dataset.state = 'online';
         $('healthText').textContent = 'API online';
-    } catch {
-        badge.dataset.state = 'offline';
-        $('healthText').textContent = 'API unreachable';
+    } catch (err) {
+        // 503 means the API answered but can't start sandboxes (Docker is down).
+        const degraded = err && err.status === 503;
+        badge.dataset.state = degraded ? 'degraded' : 'offline';
+        $('healthText').textContent = degraded ? 'Sandbox unavailable' : 'API unreachable';
     }
 }
 

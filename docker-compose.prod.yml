@@ -12,9 +12,9 @@ services:
       - ./data:/app/data                             # persists job JSONs + screenshots
     environment:
       # Sandbox containers are created by the HOST daemon, so bind sources must be host
-      # paths. Without this the daemon creates empty directories next to nothing and no
-      # screenshot ever comes back. Requires `docker compose` to be run from this directory.
-      - HOST_DATA_DIR=${PWD}/data
+      # paths. Without this the daemon creates empty directories and no screenshot ever
+      # comes back. setup.sh writes it to .env; ${PWD} isn't used because `sudo` clears it.
+      - HOST_DATA_DIR=${HOST_DATA_DIR:?set HOST_DATA_DIR in .env to the absolute path of ./data}
     extra_hosts:
       # Lets the API reach a service on the host, the same way the sandbox does.
       - "host.docker.internal:host-gateway"

@@ -146,9 +146,80 @@ def test_private_targets_follow_the_flag(monkeypatch):
         check_target("http://127.0.0.1:8080/login")
 
 
-def test_docker_host_alias_is_resolved_by_the_sandbox_not_here(monkeypatch):
+def test_docker_host_alias_follows_the_private_flag(monkeypatch):
+    """host.docker.internal is the host itself, so it is a private target."""
+    monkeypatch.setattr(config, "ALLOW_PRIVATE_TARGETS", True)
+    check_target("http://host.docker.internal:8080/login")  # the bundled demo
+
     monkeypatch.setattr(config, "ALLOW_PRIVATE_TARGETS", False)
-    check_target("http://host.docker.internal:8080/login")
+    with pytest.raises(BlockedTargetError):
+        check_target("http://host.docker.internal:22/")
+
+
+@pytest.mark.parametrize("url", [
+    "http://[::ffff:169.254.169.254]/latest/meta-data/",   # IPv4-mapped IPv6
+    "http://[fe80::1]/",
+    "http://[fd00:ec2::254]/latest/meta-data/",            # AWS IMDS over IPv6
+])
+def test_metadata_is_refused_in_every_address_form(url, monkeypatch):
+    monkeypatch.setattr(config, "ALLOW_PRIVATE_TARGETS", True)
+    with pytest.raises(BlockedTargetError):
+        check_target(url)
+
+
+def test_ipv4_mapped_loopback_counts_as_private(monkeypatch):
+    monkeypatch.setattr(config, "ALLOW_PRIVATE_TARGETS", False)
+    with pytest.raises(BlockedTargetError):
+        check_target("http://[::ffff:127.0.0.1]/")
+
+
+def test_unresolvable_host_is_left_to_fail_on_its_own(monkeypatch):
+    """Nothing to vet; the fetch reports a normal network error instead of a 400."""
+    monkeypatch.setattr(config, "ALLOW_PRIVATE_TARGETS", False)
+    check_target("http://no-such-host.invalid/login")
+
+
+class _FakeResponse:
+    def __init__(self, status, location=None, text="<html></html>"):
+        self.status_code = status
+        self.headers = {"Location": location} if location else {}
+        self.is_redirect = location is not None and 300 <= status < 400
+        self.text = text
+
+
+def test_redirects_are_vetted_hop_by_hop(monkeypatch):
+    """A public page redirecting to the metadata service must not be followed."""
+    monkeypatch.setattr(config, "ALLOW_PRIVATE_TARGETS", True)
+    calls = []
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        assert kwargs["allow_redirects"] is False
+        return _FakeResponse(302, "http://169.254.169.254/latest/meta-data/")
+
+    monkeypatch.setattr("utils.net.requests.get", fake_get)
+    from utils.net import guarded_get
+    with pytest.raises(BlockedTargetError):
+        guarded_get("http://example.com/start")
+    assert calls == ["http://example.com/start"], "the metadata hop was never requested"
+
+
+def test_safe_redirects_are_followed(monkeypatch):
+    monkeypatch.setattr(config, "ALLOW_PRIVATE_TARGETS", True)
+    pages = {"http://example.com/a": _FakeResponse(301, "/b"),
+             "http://example.com/b": _FakeResponse(200, text="done")}
+    monkeypatch.setattr("utils.net.requests.get", lambda url, **_k: pages[url])
+    from utils.net import guarded_get
+    assert guarded_get("http://example.com/a").text == "done"
+
+
+def test_redirect_loops_are_capped(monkeypatch):
+    monkeypatch.setattr(config, "ALLOW_PRIVATE_TARGETS", True)
+    monkeypatch.setattr("utils.net.requests.get",
+                        lambda url, **_k: _FakeResponse(302, "http://example.com/loop"))
+    from utils.net import guarded_get
+    with pytest.raises(BlockedTargetError, match="redirects"):
+        guarded_get("http://example.com/loop")
 
 
 def test_blocked_target_is_rejected_at_submit_time(client, monkeypatch):
@@ -200,6 +271,26 @@ def test_scanner_accepts_a_normal_reproduction_script():
         "    f.write(driver.page_source)\n"
         "print('AUTOREPRO_RESULT ' + json.dumps({'reproduced': True}))\n"
     )
+
+
+@pytest.mark.parametrize("code", [
+    "try:\n    pass\nexcept Exception as e:\n    print(type(e).__name__)",
+    "class Page:\n    def __init__(self):\n        super().__init__()",
+    "if __name__ == '__main__':\n    pass",
+])
+def test_scanner_allows_harmless_dunders(code):
+    """These cost real runs an attempt each as a bogus SecurityViolation."""
+    check(code)
+
+
+@pytest.mark.parametrize("code", [
+    "f.__init__.__globals__",
+    "type(x).__mro__",
+    "x.__dict__",
+])
+def test_scanner_still_blocks_dangerous_dunders(code):
+    with pytest.raises(SecurityError):
+        check(code)
 
 
 def test_scanner_reports_syntax_errors_as_such():

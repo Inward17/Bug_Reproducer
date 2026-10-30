@@ -35,7 +35,7 @@ def client(tmp_path, monkeypatch):
 
     page = MagicMock(text="<html><title>Login</title><input id='username'></html>")
     page.raise_for_status = lambda: None
-    monkeypatch.setattr("agent.nodes.inspect.requests.get", lambda *a, **k: page)
+    monkeypatch.setattr("utils.net.requests.get", lambda *a, **k: page)
 
     clear_cache()
     yield TestClient(app)
@@ -73,7 +73,7 @@ def test_unreachable_page_still_runs_the_pipeline(client, monkeypatch):
     def unreachable(*_a, **_k):
         raise ConnectionError("connection refused")
 
-    monkeypatch.setattr("agent.nodes.inspect.requests.get", unreachable)
+    monkeypatch.setattr("utils.net.requests.get", unreachable)
     job_id = client.post("/reproduce", json={"bug_report": BUG, "target_url": "http://example.com/login"}).json()["job_id"]
     res = client.get(f"/result/{job_id}").json()
 

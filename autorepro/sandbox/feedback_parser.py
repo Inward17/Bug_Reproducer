@@ -46,6 +46,11 @@ def classify(stdout: str, stderr: str, exit_code: int) -> str | None:
     if any(marker in haystack for marker in _NETWORK_MARKERS):
         return "NetworkError"
 
+    # A clean exit with a traceback on stderr means the script caught and logged an
+    # exception (a retried wait, say) and carried on. That traceback is not the outcome.
+    if exit_code == 0:
+        return None
+
     name, _ = final_exception(stderr)
     if name == "NoSuchElementException":
         return "ElementNotFound"

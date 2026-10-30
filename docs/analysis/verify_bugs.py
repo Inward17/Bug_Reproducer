@@ -192,7 +192,7 @@ def _():
 @check("B07", "finished API jobs lose created_at")
 def _():
     c = _api_client()
-    with patch("agent.nodes.inspect.requests.get", return_value=_fake_page()), \
+    with patch("utils.net.requests.get", return_value=_fake_page()), \
          patch("sandbox.runner.time.sleep"):
         jid = c.post("/reproduce", json={"bug_report": "Login always shows invalid credentials",
                                          "target_url": "http://example.com/login"}).json()["job_id"]

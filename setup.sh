@@ -67,7 +67,8 @@ else
   echo "  host on the public internet also set API_KEY and ALLOW_PRIVATE_TARGETS=false."
   echo
   # Read from the terminal, not from stdin: stdin may be a pipe (curl | bash).
-  if [ -r /dev/tty ]; then
+  # /dev/tty can exist without being openable (ssh without -t), so try opening it.
+  if { : < /dev/tty; } 2>/dev/null; then
     read -r -p "  Press ENTER once .env.production is filled in... " _ < /dev/tty
   else
     echo "  Non-interactive shell: edit .env.production, then re-run this script."
@@ -82,6 +83,14 @@ echo "[5/7] Creating data directories..."
 mkdir -p data/jobs data/artifacts
 chmod 755 data
 
+# Compose reads .env for variable substitution. HOST_DATA_DIR must be an absolute host
+# path, and writing it here keeps it correct under sudo, which clears $PWD.
+if grep -q '^HOST_DATA_DIR=' .env 2>/dev/null; then
+  sed -i "s|^HOST_DATA_DIR=.*|HOST_DATA_DIR=$(pwd)/data|" .env
+else
+  echo "HOST_DATA_DIR=$(pwd)/data" >> .env
+fi
+
 # --------------------------------------------------------------
 # 6. Images
 # --------------------------------------------------------------
@@ -92,8 +101,7 @@ sudo docker compose --profile build-only -f docker-compose.prod.yml build
 # 7. Start
 # --------------------------------------------------------------
 echo "[7/7] Starting AutoRepro..."
-# HOST_DATA_DIR in the compose file resolves against this directory.
-sudo PWD="$(pwd)" docker compose -f docker-compose.prod.yml up -d
+sudo docker compose -f docker-compose.prod.yml up -d
 
 PUBLIC_HOST="$(curl -s --max-time 3 http://169.254.169.254/latest/meta-data/public-hostname || true)"
 

@@ -60,6 +60,22 @@ def test_success_requires_structured_verdict_and_clean_exit(
     assert run_evaluate(stdout, stderr, exit_code, error_type)["success"] is expected
 
 
+def test_a_handled_exception_on_stderr_does_not_veto_a_clean_verdict():
+    """Scripts that retry a wait log the first TimeoutException and carry on."""
+    stderr = ("Traceback (most recent call last):\n  ...\n"
+              "selenium.common.exceptions.TimeoutException: Message: retrying\n")
+    result = parse(VERDICT_TRUE + "\n", stderr, 0)
+    state = run_evaluate(result["stdout"], result["stderr"], 0, result["error_type"])
+    assert state["success"] is True
+    assert state["execution_result"]["error_type"] is None
+
+
+def test_success_clears_any_error_type():
+    state = run_evaluate(VERDICT_TRUE, "", 0, "NetworkError")
+    assert state["success"] is True
+    assert state["execution_result"]["error_type"] is None
+
+
 def test_last_verdict_wins():
     stdout = f"{VERDICT_FALSE}\nretrying\n{VERDICT_TRUE}\n"
     assert run_evaluate(stdout)["success"] is True
@@ -119,6 +135,9 @@ def test_refine_can_end_the_run_once_it_concludes_the_bug_is_absent():
     # A number that merely looks like a 5xx status is not a network error.
     ("Found 512 items\n", "Traceback\nValueError: x", 1, "Unknown"),
     ("Order total 599\n", "", 0, None),
+    # A clean exit is classified only by network markers, never by a logged traceback.
+    ("", "Traceback\nselenium.common.exceptions.TimeoutException: x", 0, None),
+    ("PAGE_TEXT: This site can't be reached ERR_CONNECTION_REFUSED", "", 0, "NetworkError"),
     ("", "", 0, None),
     ("", "", 1, "Unknown"),
 ])

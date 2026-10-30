@@ -3,12 +3,11 @@
 import re
 from pathlib import Path
 
-import requests
 from bs4 import BeautifulSoup
 
 from agent.state import AgentState
 from utils.logger import get_logger
-from utils.net import BlockedTargetError, check_target
+from utils.net import BlockedTargetError, check_target, guarded_get
 
 log = get_logger(__name__)
 
@@ -166,10 +165,13 @@ def inspect_node(state: AgentState) -> AgentState:
     status = None
     html = ""
     try:
-        resp = requests.get(_host_url(url), headers=headers, timeout=15)
+        resp = guarded_get(_host_url(url), headers=headers, timeout=15)
         raw_status = getattr(resp, "status_code", None)
         status = raw_status if isinstance(raw_status, int) else None
         html = resp.text if isinstance(resp.text, str) else ""
+    except BlockedTargetError as e:
+        log.warning("inspect_redirect_blocked", job_id=job_id, error=str(e))
+        return {**state, "dom_context": f"(A redirect was refused by the SSRF guard: {e})"}
     except Exception as e:
         log.warning("inspect_fetch_failed", job_id=job_id, error=str(e))
         return {**state, "dom_context": (

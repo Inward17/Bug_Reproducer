@@ -27,6 +27,11 @@ BLOCKED_BUILTINS = {
 
 SCREENSHOT_ROOT = "/screenshots/"
 
+# Dunders with no path back to interpreter internals. Scripts use these routinely
+# (`type(e).__name__` in an except block, `super().__init__()`), and rejecting them
+# burned an attempt on a "SecurityViolation".
+ALLOWED_DUNDERS = {"__name__", "__qualname__", "__doc__", "__init__"}
+
 
 class SecurityError(Exception):
     """Raised when a script contains unsafe constructs."""
@@ -47,6 +52,10 @@ def _check_import(node: ast.Import | ast.ImportFrom) -> None:
             raise SecurityError(
                 f"Import {name!r} is not on the allow-list. Allowed: "
                 f"{', '.join(sorted(ALLOWED_IMPORTS))}")
+
+
+def _is_dunder(name: str) -> bool:
+    return name.startswith("__") and name.endswith("__")
 
 
 def _is_open_call(func: ast.expr) -> bool:
@@ -84,9 +93,9 @@ def check(script: str) -> None:
         # Dunder access is the standard route from any object back to the interpreter
         # internals (obj.__class__.__bases__[0].__subclasses__(), f.__globals__, ...).
         elif isinstance(node, ast.Attribute):
-            if node.attr.startswith("__") and node.attr.endswith("__"):
+            if _is_dunder(node.attr) and node.attr not in ALLOWED_DUNDERS:
                 raise SecurityError(f"Blocked dunder attribute access: .{node.attr}")
 
         elif isinstance(node, ast.Name):
-            if node.id.startswith("__") and node.id.endswith("__") and node.id != "__name__":
+            if _is_dunder(node.id) and node.id != "__name__":
                 raise SecurityError(f"Blocked dunder name: {node.id}")

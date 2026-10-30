@@ -249,6 +249,7 @@ svg { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; s
 .health-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); }
 .health[data-state="online"] .health-dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
 .health[data-state="offline"] .health-dot { background: var(--bad); box-shadow: 0 0 0 3px var(--bad-soft); }
+.health[data-state="degraded"] .health-dot { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); }
 
 /* Status dots used across the UI */
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-3); flex: none; }
