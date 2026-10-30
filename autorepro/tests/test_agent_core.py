@@ -116,6 +116,13 @@ def test_attempts_are_capped():
     assert route_after_evaluate(state) == "end_failure"
 
 
+@pytest.mark.parametrize("error_type", ["ContainerError", "InternalError"])
+def test_infrastructure_failures_are_not_refined(error_type):
+    """A broken sandbox fails every rewrite the same way; don't spend LLM calls on it."""
+    state = run_evaluate("", "boom", -1, error_type)
+    assert route_after_evaluate(state) == "end_failure"
+
+
 def test_refine_can_end_the_run_once_it_concludes_the_bug_is_absent():
     state = {**run_evaluate(VERDICT_FALSE), "bug_absent": True}
     assert route_after_evaluate(state) == "end_failure"
@@ -157,6 +164,34 @@ def test_chained_traceback_reports_the_final_exception():
     )
     assert final_exception(stderr) == ("RuntimeError", "what actually killed it")
     assert parse("", stderr, 1)["error_message"] == "what actually killed it"
+
+
+def test_chrome_error_page_is_a_network_error_even_when_a_wait_timed_out():
+    """Chrome doesn't raise on a refused connection; the later wait does."""
+    stdout = ("PAGE_TEXT: This site can't be reached\nhost.docker.internal refused to "
+              "connect.\nERR_CONNECTION_REFUSED\n")
+    stderr = "Traceback\nselenium.common.exceptions.TimeoutException: Message: \n"
+    assert classify(stdout, stderr, 1) == "NetworkError"
+
+
+@pytest.mark.parametrize("stdout, stderr, expected", [
+    ("PAGE_TEXT: This site can't be reached\nThe webpage might be down.\nERR_UNSAFE_PORT\n",
+     "Traceback\nTimeoutException: x", "NetworkError"),
+    ("", "WebDriverException: Message: unknown error: net::ERR_SSL_PROTOCOL_ERROR", "NetworkError"),
+    # An ERR_ token inside ordinary page text is not a browser error page.
+    ("PAGE_TEXT: Status code ERR_INVALID_COUPON shown\n", "Traceback\nTimeoutException: x", "Timeout"),
+])
+def test_any_chrome_network_error_code_is_recognised(stdout, stderr, expected):
+    assert classify(stdout, stderr, 1) == expected
+
+
+def test_selenium_message_prefix_is_stripped():
+    stderr = ("Traceback\nselenium.common.exceptions.TimeoutException: Message: \n"
+              "Stacktrace:\n#0 0x55d4 <unknown>\n#1 0x55d5 <unknown>\n")
+    assert final_exception(stderr) == ("TimeoutException", None)
+    out = parse("", stderr, 1)
+    assert out["error_message"] == "TimeoutException"
+    assert "<unknown>" not in out["stack_trace"]
 
 
 def test_parse_collects_screenshot_paths_from_stdout():
@@ -284,3 +319,15 @@ def test_refine_flags_bug_absent_only_after_two_attempts():
     assert early.get("bug_absent") is False
     assert late["bug_absent"] is True
     assert late["execution_result"]["error_type"] == FailureType.FALSE_POSITIVE.value
+
+
+def test_mock_refine_keeps_the_target_url():
+    """The mock must not quietly "fix" a run by navigating somewhere else."""
+    from pathlib import Path as _Path
+
+    from utils.mock_llm import MockLLM
+    template = (_Path(__file__).resolve().parent.parent / "prompts" / "refine.txt").read_text(encoding="utf-8")
+    prompt = template.format(bug_report="b", previous_script="", failure_json="{}",
+                             full_history="", dom_context="", target_url="http://t:1/nope")
+    _, script = common.parse_script(MockLLM().invoke(prompt).content)
+    assert 'driver.get("http://t:1/nope")' in script

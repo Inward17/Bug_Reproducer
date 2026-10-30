@@ -20,6 +20,12 @@ _NETWORK_MARKERS = (
     "MaxRetryError",
 )
 
+# Chrome has dozens of network error codes (ERR_UNSAFE_PORT, ERR_SSL_PROTOCOL_ERROR, ...).
+# It reports them as "net::ERR_X" in exceptions, and as a line of their own on its
+# error page, which reaches stdout through the script's PAGE_TEXT line. A bare ERR_X
+# elsewhere in page text is not enough.
+_CHROME_NET_ERROR = re.compile(r'net::ERR_[A-Z_]+|^ERR_[A-Z_]+\s*$', re.MULTILINE)
+
 # "ValueError: x", "selenium.common.exceptions.TimeoutException: Message: ..."
 _EXCEPTION_LINE = re.compile(
     r'^(?:[A-Za-z_][\w.]*\.)?([A-Za-z_]\w*(?:Error|Exception|Exit|Interrupt))\b(?::[ \t]*(.*))?$',
@@ -37,13 +43,19 @@ def final_exception(stderr: str) -> tuple[str | None, str | None]:
     if not matches:
         return None, None
     name, message = matches[-1]
-    return name, (message.strip() or None)
+    # Selenium formats exceptions as "TimeoutException: Message: <text>", and <text>
+    # is often empty, which left the UI showing a bare "Message:".
+    message = message.strip()
+    if message.startswith("Message:"):
+        message = message[len("Message:"):].strip()
+    return name, (message or None)
 
 
 def classify(stdout: str, stderr: str, exit_code: int) -> str | None:
     """Classify a failed run. Returns None when the run did not fail."""
     haystack = f"{stderr}\n{stdout}"
-    if any(marker in haystack for marker in _NETWORK_MARKERS):
+    if (any(marker in haystack for marker in _NETWORK_MARKERS)
+            or _CHROME_NET_ERROR.search(haystack)):
         return "NetworkError"
 
     # A clean exit with a traceback on stderr means the script caught and logged an
@@ -72,7 +84,10 @@ def parse(stdout: str, stderr: str, exit_code: int) -> dict:
 
     stack_trace = None
     if "Traceback" in (stderr or ""):
-        stack_trace = "\n".join(stderr.strip().splitlines()[-10:])
+        # Selenium appends chromedriver's native frames ("Stacktrace:\n#0 0x55..."),
+        # which crowded the Python frames out of the last ten lines.
+        python_part = stderr.split("\nStacktrace:", 1)[0]
+        stack_trace = "\n".join(python_part.strip().splitlines()[-10:])
     if error_message is None and name:
         error_message = name
 

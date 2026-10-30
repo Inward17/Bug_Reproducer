@@ -398,7 +398,7 @@ LLM_MODEL=qwen2.5-coder:3b
 | `SANDBOX_MEMORY_MB` | `512` | Memory limit for Docker sandbox containers |
 | `SANDBOX_IMAGE` | `autorepro-sandbox:latest` | Docker image name for the sandbox |
 | `SANDBOX_PIDS_LIMIT` | `256` | Process limit inside a sandbox container |
-| `SANDBOX_READ_ONLY` | `false` | Read-only rootfs + tmpfs for the sandbox. Run the demo once after enabling |
+| `SANDBOX_READ_ONLY` | `false` | Read-only rootfs + tmpfs for the sandbox. Verified with the bundled image; recheck if you change the Chromium build |
 | `MAX_CONCURRENT_SANDBOXES` | `4` | Sandbox containers allowed to run at once |
 | `API_KEY` | — | When set, every API call needs a matching `X-API-Key` header |
 | `CORS_ORIGINS` | — | Comma-separated origins allowed to call the API from a browser. Empty means none; the bundled UI is same-origin |

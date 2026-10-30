@@ -64,7 +64,11 @@ class MockLLM:
     def _script(self, prompt: str) -> str:
         """Generate a mock Selenium script that follows the verdict contract."""
         import re
-        url_match = re.search(r'Target URL:\s*(\S+)', prompt)
+        # generate.txt has "Target URL:\n<url>"; refine.txt has "Keep EXACTLY: <url>".
+        # Missing the refine form made every refined script fall back to the demo login
+        # URL, so a run against the wrong page "succeeded" on attempt 2.
+        url_match = (re.search(r'Target URL:\s*(\S+)', prompt)
+                     or re.search(r'use EXACTLY:\s*(\S+)', prompt))
         target_url = url_match.group(1) if url_match else "http://host.docker.internal:8080/login"
 
         return f'''import json
@@ -92,6 +96,7 @@ try:
 
     print("Step 2: Navigating to login page")
     driver.get("{target_url}")
+    print("PAGE_TEXT:", driver.find_element(By.TAG_NAME, "body").text[:500])
     driver.save_screenshot("/screenshots/step_1_page_loaded.png")
 
     print("Step 3: Filling in valid credentials")

@@ -10,6 +10,8 @@ from agent.nodes.inspect import inspect_node
 from agent.nodes.refine import refine_node
 from agent.state import AgentState, FailureType
 
+INFRASTRUCTURE_ERRORS = {"ContainerError", "InternalError"}
+
 
 def route_after_evaluate(state: AgentState) -> str:
     """Route after evaluation: end on success, refine if attempts remain, else end failure."""
@@ -18,6 +20,11 @@ def route_after_evaluate(state: AgentState) -> str:
 
     if state.get("bug_absent"):
         # Refine already concluded, from the full history, that the bug is not present.
+        return "end_failure"
+
+    if state["execution_result"].get("error_type") in INFRASTRUCTURE_ERRORS:
+        # The sandbox itself is broken. A rewritten script would fail the same way, and
+        # each retry costs an LLM call.
         return "end_failure"
 
     if state["attempt_count"] < state["max_attempts"]:

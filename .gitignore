@@ -43,8 +43,9 @@ updated_mcp_config.json
 # SSH keys
 *.pem
 
-# Runtime data
+# Runtime data (local runs, and ./data next to docker-compose.prod.yml)
 autorepro/data/
+/data/
 
 # Flame graph artifacts
 autorepro/autorepro_flamegraph*

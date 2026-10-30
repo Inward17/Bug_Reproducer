@@ -108,6 +108,11 @@ STRICT RULES:
    from selenium.webdriver.support.ui import WebDriverWait
    from selenium.webdriver.support import expected_conditions as EC
 3. Print "Step N: <action>" to stdout before each significant action.
+   Immediately after the first driver.get(), BEFORE waiting for any element, print the
+   page as loaded:
+       print("PAGE_TEXT:", driver.find_element(By.TAG_NAME, "body").text[:500])
+   When the site is unreachable, Chrome shows its own error page instead of raising, and
+   that line is the only way the system can tell a network failure from a bad selector.
 4. In every except block: driver.save_screenshot(f"/screenshots/failure_{{int(time.time())}}.png") then re-raise.
 5. Call driver.quit() in finally — always.
 6. You may ONLY import the modules listed in rule 2, plus: re, math, random, datetime.
