@@ -158,6 +158,14 @@ def run(script_path: str, job_id: str, attempt: int = 1) -> dict:
             # save_screenshot() doesn't print its path, so the files on disk are the list.
             from_disk = _collect_outputs(attempt_dir, job_dir, attempt)
 
+    # The script mount points at a host path the daemon can't see, so Docker created an
+    # empty directory there. Retrying with a different script can never help.
+    if "can't find '__main__' module in '/scripts/script.py'" in stderr:
+        raise ContainerError(
+            "The sandbox could not see the script file. When the API runs in a container, "
+            "HOST_DATA_DIR must be the absolute host path of DATA_DIR "
+            f"(currently {os.getenv('HOST_DATA_DIR') or 'unset'!r}).")
+
     duration = round(time.time() - start, 2)
     result   = parse(stdout, stderr, exit_code)
     result["screenshot_paths"] = from_disk

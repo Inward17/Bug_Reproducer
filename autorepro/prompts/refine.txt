@@ -85,6 +85,11 @@ Instructions:
 CRITICAL: NEVER change the target URL. Always use EXACTLY: {target_url}
 Do NOT replace it with localhost, 127.0.0.1, or any other address.
 
+Right after the first driver.get(), before any wait, print the loaded page with
+`print("PAGE_TEXT:", driver.find_element(By.TAG_NAME, "body").text[:500])` — when the
+site is unreachable Chrome shows an error page instead of raising, and this line is how
+the system tells a network failure from a selector problem.
+
 Apply all rules: import json and time, WebDriverWait for elements, time.sleep(2) after a form
 submit, read visible body text for evidence, print the AUTOREPRO_RESULT verdict line exactly
 once, screenshot in except, driver.quit() in finally.

@@ -26,6 +26,7 @@ SCRIPT = "import time\nprint('hi')\n"
 def job_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA_DIR", str(tmp_path))
     monkeypatch.setattr(config, "DEMO_MODE", False)
+    monkeypatch.delenv("HOST_DATA_DIR", raising=False)
     path = artifacts_dir(JOB)
     (path / "attempt_1.py").write_text(SCRIPT, encoding="utf-8")
     return path
@@ -88,6 +89,17 @@ def test_inspect_dom_keeps_its_name_and_reruns_overwrite(job_dir, monkeypatch):
     fake_docker(monkeypatch, on_run)
     runner.run(str(job_dir / "inspect_spa.py"), JOB, attempt=0)
     assert (job_dir / "dom.html").read_text(encoding="utf-8") == "fresh"
+
+
+def test_an_invisible_script_mount_is_reported_as_a_container_error(job_dir, monkeypatch):
+    """What a wrong HOST_DATA_DIR looks like: Docker mounts an empty directory."""
+    _, container = fake_docker(monkeypatch, lambda *_a: None)
+    container.wait.return_value = {"StatusCode": 1}
+    container.logs.side_effect = lambda stdout, stderr: (
+        b"" if stdout else
+        b"/usr/local/bin/python: can't find '__main__' module in '/scripts/script.py'\n")
+    with pytest.raises(runner.ContainerError, match="HOST_DATA_DIR"):
+        runner.run(str(job_dir / "attempt_1.py"), JOB, attempt=1)
 
 
 def test_container_is_hardened(job_dir, monkeypatch):

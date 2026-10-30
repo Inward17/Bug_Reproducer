@@ -1,11 +1,14 @@
 """Central configuration — all settings read from .env file and environment variables."""
 
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Load .env file (does NOT override existing env vars, so CLI still works as override)
-load_dotenv()
+# Load autorepro/.env (does NOT override existing env vars, so CLI still works as override).
+# The path is explicit: a bare load_dotenv() walks up the tree and picked up the repo-root
+# .env that docker compose uses, whose HOST_DATA_DIR then broke every local run's mounts.
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 
 def _flag(name: str, default: str = "") -> bool:
@@ -23,8 +26,9 @@ SANDBOX_TIMEOUT_SECONDS: int = int(os.getenv("SANDBOX_TIMEOUT_SECONDS", "60"))
 SANDBOX_MEMORY_MB: int       = int(os.getenv("SANDBOX_MEMORY_MB", "512"))
 SANDBOX_IMAGE: str           = os.getenv("SANDBOX_IMAGE", "autorepro-sandbox:latest")
 SANDBOX_PIDS_LIMIT: int      = int(os.getenv("SANDBOX_PIDS_LIMIT", "256"))
-# Read-only rootfs + tmpfs for the sandbox. Off by default because it depends on the
-# Chromium build's scratch paths; turn it on and run the demo once to confirm.
+# Read-only rootfs + tmpfs for the sandbox. Verified working with the bundled image
+# (Debian chromium); off by default because a different Chromium build may need
+# other scratch paths.
 SANDBOX_READ_ONLY: bool      = _flag("SANDBOX_READ_ONLY")
 DATA_DIR: str                = os.getenv("DATA_DIR", "./data")
 LOG_LEVEL: str               = os.getenv("LOG_LEVEL", "INFO")
