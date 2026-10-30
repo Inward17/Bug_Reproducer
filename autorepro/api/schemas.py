@@ -1,7 +1,8 @@
 """Pydantic request/response models for the AutoRepro API."""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, HttpUrl
-from typing import Optional, Literal
 
 
 class ReproduceRequest(BaseModel):
@@ -20,10 +21,10 @@ class JobResultResponse(BaseModel):
     """Response for completed/failed reproduction job."""
     job_id:          str
     status:          str
-    success:         Optional[bool]      = None
-    attempt_count:   Optional[int]       = None
-    final_script:    Optional[str]       = None
-    screenshot_urls: Optional[list[str]] = None
-    logs:            Optional[str]       = None
-    created_at:      Optional[str]       = None
-    completed_at:    Optional[str]       = None
+    success:         bool | None      = None
+    attempt_count:   int | None       = None
+    final_script:    str | None       = None
+    screenshot_urls: list[str] | None = None
+    logs:            str | None       = None
+    created_at:      str | None       = None
+    completed_at:    str | None       = None

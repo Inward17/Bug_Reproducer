@@ -110,6 +110,15 @@ def test_api_key_is_enforced_when_configured(client, monkeypatch):
     assert client.get("/jobs", headers={"X-API-Key": "s3cret"}).status_code == 200
 
 
+def test_api_key_is_also_accepted_as_a_cookie(client, monkeypatch):
+    """A browser can't put a header on an <img src>, and screenshots are images."""
+    monkeypatch.setattr(config, "API_KEY", "s3cret")
+    client.cookies.set("autorepro_api_key", "s3cret")
+    assert client.get("/jobs").status_code == 200
+    client.cookies.set("autorepro_api_key", "wrong")
+    assert client.get("/jobs").status_code == 401
+
+
 def test_health_reports_the_sandbox_runtime(client, monkeypatch):
     monkeypatch.setattr(config, "DEMO_MODE", True)
     body = client.get("/health").json()

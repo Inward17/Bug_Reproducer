@@ -15,21 +15,23 @@ build/
 
 # Pytest
 .pytest_cache/
+.coverage
+htmlcov/
 
 # OS files
 .DS_Store
 Thumbs.db
 
-# IDE / Editor
+# IDE / Editor / local agent config
 .vscode/
 .idea/
-
-# Kiro
 .kiro/
+updated_mcp_config.json
 
-# Environment variables
+# Environment variables — the template is committed, filled-in files are not
 .env
 .env.*
+!.env.production.template
 
 # Logs
 *.log
@@ -38,24 +40,13 @@ Thumbs.db
 *.pdf
 *.pptx
 
-# Generated diagrams
-generated-diagrams/
-
-# Runtime data
-autorepro/data/jobs/
-autorepro/data/artifacts/
-
-# Markdown files (except README)
-*.md
-!README.md
-
 # SSH keys
 *.pem
+
+# Runtime data
+autorepro/data/
 
 # Flame graph artifacts
 autorepro/autorepro_flamegraph*
 autorepro/autorepro_sample*
-
-# Analysis reports
-!docs/analysis/*.md
-venv/
+autorepro/tools/

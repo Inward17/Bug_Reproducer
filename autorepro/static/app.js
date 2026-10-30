@@ -92,12 +92,31 @@ function icon(name, cls = '') {
 
 /* ── API ───────────────────────────────────────────────── */
 
+/* When the server runs with API_KEY set, every call needs the header. The key is a
+   per-browser setting, so it lives in localStorage:
+     localStorage.setItem('autorepro_api_key', '<the key>')  */
+function apiKey() {
+    try { return localStorage.getItem('autorepro_api_key') || ''; } catch { return ''; }
+}
+
+/* Mirror the key into a same-origin cookie so <img src> screenshot loads carry it too —
+   a browser can't add a header to an image request. */
+(function syncApiKeyCookie() {
+    const key = apiKey();
+    if (key) document.cookie = `autorepro_api_key=${encodeURIComponent(key)}; path=/; SameSite=Strict`;
+})();
+
 async function api(path, options) {
-    const res = await fetch(path, options);
+    const opts = { ...options };
+    const key = apiKey();
+    if (key) opts.headers = { ...(opts.headers || {}), 'X-API-Key': key };
+    const res = await fetch(path, opts);
     let body = null;
     try { body = await res.json(); } catch { /* empty or non-JSON body */ }
     if (!res.ok) {
-        const err = new Error(describeError(body, res.status));
+        const err = new Error(res.status === 401
+            ? 'This server requires an API key. Set it with localStorage.setItem("autorepro_api_key", "<key>") and reload.'
+            : describeError(body, res.status));
         err.status = res.status;
         throw err;
     }
