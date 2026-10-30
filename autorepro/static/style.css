@@ -517,6 +517,17 @@ svg { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; s
 .pipeline-status { margin-top: 14px; font-size: 13px; color: var(--text-2); display: flex; align-items: center; gap: 8px; }
 .pipeline-status .spinner { color: var(--run); }
 
+/* Shown when DEMO_MODE produced the verdict, so nobody reads it as evidence. */
+.simulated-banner {
+  margin-top: 12px; padding: 10px 14px;
+  border-radius: var(--radius);
+  background: var(--warn-soft);
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+  color: var(--warn);
+  font-size: 13px; line-height: 1.5;
+}
+.simulated-banner[hidden] { display: none; }
+
 /* Error banner */
 .banner {
   padding: 14px 18px; margin-bottom: 14px;
