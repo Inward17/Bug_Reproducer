@@ -21,11 +21,17 @@ def _docker_status() -> tuple[bool, str | None]:
     """Ping the Docker daemon. Returns (ok, error)."""
     if config.DEMO_MODE:
         return True, None
+    client = None
     try:
-        docker.from_env().ping()
+        # A short timeout: the UI polls this, and a hung daemon must not hang the API.
+        client = docker.from_env(timeout=5)
+        client.ping()
         return True, None
     except Exception as e:
         return False, str(e)
+    finally:
+        if client is not None:
+            client.close()
 
 
 @asynccontextmanager
@@ -86,8 +92,12 @@ async def root():
 
 
 @app.get("/health")
-async def health():
-    """Health check — reports whether the sandbox runtime is actually reachable."""
+def health():
+    """Health check — reports whether the sandbox runtime is actually reachable.
+
+    Sync on purpose: the Docker ping blocks, and FastAPI runs sync handlers in its thread
+    pool instead of on the event loop that serves every other request.
+    """
     ok, error = _docker_status()
     body = {
         "status": "ok" if ok else "degraded",

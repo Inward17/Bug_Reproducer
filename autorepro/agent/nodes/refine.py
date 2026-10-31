@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from agent.common import extract_text, fix_url, parse_script
+from agent.common import PAGE_TEXT_PREFIX, extract_text, fix_url, parse_script
 from agent.state import AgentState, FailureType
 from utils.llm import get_llm
 from utils.logger import get_logger
@@ -21,18 +21,51 @@ def _get_llm():
     return get_llm(temperature=0.3)
 
 
+# The history grew by a full script plus console output per attempt (~29 KB by attempt 5
+# on a tiny page), which pushed the bug report and rules out of a small model's context.
+# The latest attempts stay verbatim; older ones keep only what they tried and what the
+# page showed.
+FULL_HISTORY_ATTEMPTS = 2
+MAX_OUTPUT_CHARS = 2000
+
+
+def _tail(text: str, limit: int = MAX_OUTPUT_CHARS) -> str:
+    """Keep both ends: PAGE_TEXT is printed first, the verdict and traceback come last."""
+    text = text or ""
+    if len(text) <= limit:
+        return text
+    head = limit // 4
+    return text[:head] + "\n[...truncated...]\n" + text[-(limit - head):]
+
+
+def _summarise(h: dict) -> str:
+    result = h.get("result", {})
+    page_text = [line for line in (result.get("stdout") or "").splitlines()
+                 if line.startswith(PAGE_TEXT_PREFIX)]
+    return (f"=== ATTEMPT {h['attempt']} (summary) ===\n"
+            f"Error type: {result.get('error_type', 'N/A')}\n"
+            f"Error message: {str(result.get('error_message') or '')[:300]}\n"
+            f"Refinement note: {h.get('refinement_note', 'N/A')}\n"
+            f"Page text seen: {page_text[0][:300] if page_text else 'none'}\n")
+
+
 def _render_history(history: list) -> str:
-    """Full script plus console output per attempt, so the model can't repeat a mistake."""
+    """Recent attempts in full and older ones summarised, so the model can't repeat a
+    mistake without the history crowding out the rest of the prompt."""
+    cutoff = len(history) - FULL_HISTORY_ATTEMPTS
     parts = []
-    for h in history:
+    for i, h in enumerate(history):
+        if i < cutoff:
+            parts.append(_summarise(h))
+            continue
         result = h.get("result", {})
         parts.append(
             f"=== ATTEMPT {h['attempt']} ===\n"
             f"Error type: {result.get('error_type', 'N/A')}\n"
             f"Refinement note: {h.get('refinement_note', 'N/A')}\n\n"
             f"--- Script ---\n{h.get('script', 'N/A')}\n\n"
-            f"--- stdout ---\n{result.get('stdout', '')}\n\n"
-            f"--- stderr ---\n{result.get('stderr', '')}\n"
+            f"--- stdout ---\n{_tail(result.get('stdout', ''))}\n\n"
+            f"--- stderr ---\n{_tail(result.get('stderr', ''))}\n"
         )
     return "\n".join(parts) if parts else "No previous attempts."
 

@@ -21,6 +21,10 @@ BEDROCK_MODEL: str           = os.getenv("BEDROCK_MODEL", LLM_MODEL)
 ANTHROPIC_MODEL: str         = os.getenv("ANTHROPIC_MODEL", LLM_MODEL)
 GOOGLE_MODEL: str            = os.getenv("GOOGLE_MODEL", LLM_MODEL)
 OLLAMA_MODEL: str            = os.getenv("OLLAMA_MODEL", LLM_MODEL)
+# Ollama's default context is 2k-4k tokens depending on version and it silently drops the
+# start of a longer prompt, which is where the bug report and the rules are. The generate
+# prompt alone is ~2.5k tokens before the page DOM is added.
+OLLAMA_NUM_CTX: int          = int(os.getenv("OLLAMA_NUM_CTX", "16384"))
 MAX_ATTEMPTS: int            = int(os.getenv("MAX_ATTEMPTS", "5"))
 SANDBOX_TIMEOUT_SECONDS: int = int(os.getenv("SANDBOX_TIMEOUT_SECONDS", "60"))
 SANDBOX_MEMORY_MB: int       = int(os.getenv("SANDBOX_MEMORY_MB", "512"))

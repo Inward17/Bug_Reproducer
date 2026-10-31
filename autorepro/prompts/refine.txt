@@ -47,6 +47,12 @@ DIAGNOSIS GUIDE — read `error_type` in the execution result:
 2. `WrongVerification` — the script exited cleanly but printed no AUTOREPRO_RESULT line.
    → Add the verdict line. It must run on every path, including when your checks all fail.
 
+2b. `EvidenceBeforeAction` — the script said reproduced=true, but its evidence text was
+   already on the page before any reproduction step ran, so it proves nothing.
+   → Check for a change the action causes: text that appears only after it, an element
+     that disappears, or a URL that should change but doesn't. Compare against the
+     PAGE_TEXT line, which is the page before any action.
+
 3. `Timeout` — an element was not found in time. The CSS selector is wrong.
    → Try different selectors: button[type='submit'], input[type='submit'], #submit, .btn-login
    → For input fields: input[name='username'], input[id='username'], input[type='text']

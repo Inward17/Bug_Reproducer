@@ -12,6 +12,7 @@ class FailureType(str, Enum):
     NETWORK_ERROR        = "NetworkError"
     WRONG_VERIFICATION   = "WrongVerification"
     BUG_NOT_OBSERVED     = "BugNotObserved"
+    EVIDENCE_BEFORE_ACTION = "EvidenceBeforeAction"
     FALSE_POSITIVE       = "FalsePositive"
     UNKNOWN              = "Unknown"
 

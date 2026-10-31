@@ -243,9 +243,16 @@ function toggleTheme() {
 async function checkHealth() {
     const badge = $('health');
     try {
-        await api('/health');
+        const health = await api('/health');
         badge.dataset.state = 'online';
-        $('healthText').textContent = 'API online';
+        // Scripts from the mock LLM are canned templates; say so, or a run reads as AI work.
+        let note = '';
+        if (health && health.demo_mode) note = ' · demo mode';
+        else if (health && health.llm_provider === 'mock') note = ' · mock LLM';
+        $('healthText').textContent = `API online${note}`;
+        badge.title = health && health.demo_mode
+            ? 'DEMO_MODE is on: no browser runs and verdicts are simulated.'
+            : `LLM provider: ${(health && health.llm_provider) || 'unknown'}`;
     } catch (err) {
         // 503 means the API answered but can't start sandboxes (Docker is down).
         const degraded = err && err.status === 503;
@@ -615,7 +622,7 @@ function renderOverview(job) {
 
 function attemptOutcome(job, attempt, isLast) {
     if (isLast && job.status === 'done' && job.success) return { label: 'Reproduced', kind: 'ok' };
-    if (attempt.error_type === 'FalsePositive' || attempt.error_type === 'WrongVerification') return { label: attempt.error_type, kind: 'warn' };
+    if (['FalsePositive', 'WrongVerification', 'EvidenceBeforeAction'].includes(attempt.error_type)) return { label: attempt.error_type, kind: 'warn' };
     if (attempt.error_type) return { label: attempt.error_type, kind: 'bad' };
     if (isLast && job.status === 'processing') return { label: 'Evaluating', kind: 'run' };
     return { label: attempt.exit_code === 0 ? 'No verdict' : 'Failed', kind: attempt.exit_code === 0 ? 'warn' : 'bad' };

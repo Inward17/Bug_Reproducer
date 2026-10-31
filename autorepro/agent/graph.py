@@ -11,6 +11,19 @@ from agent.nodes.refine import refine_node
 from agent.state import AgentState, FailureType
 
 INFRASTRUCTURE_ERRORS = {"ContainerError", "InternalError"}
+# One refine is allowed after a network failure, since the script may have navigated to a
+# wrong host. A second one in a row means the target itself is unreachable, and the refine
+# prompt forbids changing the URL, so further attempts can only fail the same way.
+MAX_CONSECUTIVE_NETWORK_ERRORS = 2
+
+
+def _consecutive_network_errors(state: AgentState) -> int:
+    count = 0
+    for entry in reversed(state.get("history") or []):
+        if (entry.get("result") or {}).get("error_type") != FailureType.NETWORK_ERROR.value:
+            break
+        count += 1
+    return count
 
 
 def route_after_evaluate(state: AgentState) -> str:
@@ -25,6 +38,9 @@ def route_after_evaluate(state: AgentState) -> str:
     if state["execution_result"].get("error_type") in INFRASTRUCTURE_ERRORS:
         # The sandbox itself is broken. A rewritten script would fail the same way, and
         # each retry costs an LLM call.
+        return "end_failure"
+
+    if _consecutive_network_errors(state) >= MAX_CONSECUTIVE_NETWORK_ERRORS:
         return "end_failure"
 
     if state["attempt_count"] < state["max_attempts"]:
