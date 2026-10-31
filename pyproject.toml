@@ -1,0 +1,20 @@
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+src = ["autorepro"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = [
+    "E501",  # long lines are mostly prompt text and log calls
+    "E241",  # the codebase aligns assignments in column blocks
+    "B008",  # FastAPI dependencies are called in defaults by design
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests import the app lazily, after sys.path is set up.
+"autorepro/tests/*" = ["E402"]
+"docs/analysis/verify_bugs.py" = ["E402", "F811", "E731"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["agent", "api", "sandbox", "storage", "utils"]

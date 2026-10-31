@@ -39,7 +39,7 @@ def _make_google(model: str, temperature: float):
 
 def _make_ollama(model: str, temperature: float):
     from langchain_ollama import ChatOllama
-    return ChatOllama(model=model, temperature=temperature)
+    return ChatOllama(model=model, temperature=temperature, num_ctx=config.OLLAMA_NUM_CTX)
 
 
 def _make_openai(model: str, temperature: float):
