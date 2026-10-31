@@ -1,0 +1,7 @@
+# Shell scripts must keep LF even in a Windows checkout with core.autocrlf=true:
+# with CRLF, `#!/usr/bin/env bash` looks for an interpreter called "bash\r".
+*.sh        text eol=lf
+Dockerfile  text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+.env.production.template text eol=lf

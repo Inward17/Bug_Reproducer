@@ -1,7 +1,7 @@
 """AgentState TypedDict and FailureType enum — single source of truth for agent data."""
 
-from typing import TypedDict
 from enum import Enum
+from typing import TypedDict
 
 
 class FailureType(str, Enum):
@@ -11,6 +11,8 @@ class FailureType(str, Enum):
     ASSERTION_ERROR      = "AssertionError"
     NETWORK_ERROR        = "NetworkError"
     WRONG_VERIFICATION   = "WrongVerification"
+    BUG_NOT_OBSERVED     = "BugNotObserved"
+    EVIDENCE_BEFORE_ACTION = "EvidenceBeforeAction"
     FALSE_POSITIVE       = "FalsePositive"
     UNKNOWN              = "Unknown"
 
@@ -27,4 +29,5 @@ class AgentState(TypedDict):
     script:           str
     execution_result: dict
     success:          bool
+    bug_absent:       bool
     history:          list

@@ -29,6 +29,9 @@ Guidelines for "success_condition" in each variant:
 - WRONG: "Verify URL contains '/about'" (SPAs don't change URL on tab navigation)
 - WRONG: "Verify element is missing from DOM" (structural assumptions are unreliable)
 
+Every key below is REQUIRED, including "bug_variants" with at least two entries.
+A reply missing any key is rejected.
+
 Return this exact JSON structure:
 {{
   "inferred_steps":    ["ordered list of steps a human would perform in a browser to trigger the bug"],
