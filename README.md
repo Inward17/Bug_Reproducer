@@ -387,6 +387,7 @@ LLM_MODEL=qwen2.5-coder:3b
 | `LLM_PROVIDER` | `ollama` | LLM provider: `bedrock`, `google`, `anthropic`, `openai`, `ollama`, `auto` (try each in turn), `mock` (offline tests) |
 | `LLM_MODEL` | `qwen2.5-coder:3b` | Model name/ID for the chosen provider |
 | `BEDROCK_MODEL` / `ANTHROPIC_MODEL` / `GOOGLE_MODEL` / `OLLAMA_MODEL` | `LLM_MODEL` | Per-provider override, used by `LLM_PROVIDER=auto` |
+| `OLLAMA_NUM_CTX` | `16384` | Context window requested from Ollama; its own default silently truncates the prompts |
 | `AWS_ACCESS_KEY_ID` | — | AWS credentials (for Bedrock provider) |
 | `AWS_SECRET_ACCESS_KEY` | — | AWS credentials (for Bedrock provider) |
 | `AWS_DEFAULT_REGION` | `us-east-1` | AWS region (for Bedrock provider) |

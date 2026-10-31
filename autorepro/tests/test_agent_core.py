@@ -92,6 +92,51 @@ def test_reproduced_false_is_bug_not_observed():
     assert "all ok" in result["error_message"]
 
 
+LOGIN_ANALYSIS = {"inferred_steps": ["Navigate to the login page", "Enter valid username",
+                                     "Click the Login button", "Observe the error"]}
+LOAD_ANALYSIS = {"inferred_steps": ["Navigate to the home page", "Observe the banner"]}
+
+
+def _evaluate_with(stdout, analysis):
+    state = {"job_id": "t", "attempt_count": 2, "max_attempts": 5, "bug_absent": False,
+             "analysis": analysis,
+             "execution_result": {"stdout": stdout, "stderr": "", "exit_code": 0,
+                                  "error_type": None}}
+    return evaluate_node(state)
+
+
+def _verdict(evidence):
+    return f'AUTOREPRO_RESULT {{"reproduced": true, "variant": "v", "evidence": "{evidence}"}}'
+
+
+def test_evidence_already_on_the_page_before_the_action_is_rejected():
+    """The drift refine can fall into: "'Sign in' is visible" holds before any login."""
+    stdout = f"PAGE_TEXT: Sign in Username Password\n{_verdict('Sign in')}"
+    state = _evaluate_with(stdout, LOGIN_ANALYSIS)
+    assert state["success"] is False
+    assert state["execution_result"]["error_type"] == "EvidenceBeforeAction"
+    assert route_after_evaluate(state) == "refine"
+
+
+def test_evidence_that_appears_after_the_action_is_accepted():
+    stdout = f"PAGE_TEXT: Sign in Username Password\n{_verdict('Invalid credentials')}"
+    assert _evaluate_with(stdout, LOGIN_ANALYSIS)["success"] is True
+
+
+def test_a_bug_visible_on_load_may_use_evidence_from_the_first_page():
+    """No action in the steps: the bug is on the page as loaded, so baseline evidence is fine."""
+    stdout = f"PAGE_TEXT: Welcome Error 500 in banner\n{_verdict('Error 500')}"
+    assert _evaluate_with(stdout, LOAD_ANALYSIS)["success"] is True
+
+
+@pytest.mark.parametrize("stdout", [
+    _verdict("Sign in"),                                        # no baseline printed
+    f"PAGE_TEXT: Sign in Username\n{_verdict('in')}",           # evidence too short to mean anything
+])
+def test_evidence_guard_needs_a_baseline_and_real_evidence(stdout):
+    assert _evaluate_with(stdout, LOGIN_ANALYSIS)["success"] is True
+
+
 def test_evaluate_keeps_an_error_type_the_runner_already_set():
     result = run_evaluate("", "boom", 1, "Timeout")["execution_result"]
     assert result["error_type"] == "Timeout"
@@ -121,6 +166,30 @@ def test_infrastructure_failures_are_not_refined(error_type):
     """A broken sandbox fails every rewrite the same way; don't spend LLM calls on it."""
     state = run_evaluate("", "boom", -1, error_type)
     assert route_after_evaluate(state) == "end_failure"
+
+
+def _net_history(*error_types):
+    return [{"attempt": i + 1, "result": {"error_type": t}} for i, t in enumerate(error_types)]
+
+
+def test_one_network_error_still_gets_a_refine():
+    """The script may have navigated to a wrong host; one rewrite can fix that."""
+    state = {**run_evaluate("", "net::ERR_CONNECTION_REFUSED", 1, "NetworkError"),
+             "history": _net_history("NetworkError")}
+    assert route_after_evaluate(state) == "refine"
+
+
+def test_an_unreachable_target_stops_after_two_network_errors():
+    state = {**run_evaluate("", "net::ERR_CONNECTION_REFUSED", 1, "NetworkError"),
+             "attempt_count": 2, "history": _net_history("NetworkError", "NetworkError")}
+    assert route_after_evaluate(state) == "end_failure"
+
+
+def test_network_errors_must_be_consecutive_to_stop_the_run():
+    state = {**run_evaluate("", "net::ERR_CONNECTION_REFUSED", 1, "NetworkError"),
+             "attempt_count": 3,
+             "history": _net_history("NetworkError", "Timeout", "NetworkError")}
+    assert route_after_evaluate(state) == "refine"
 
 
 def test_refine_can_end_the_run_once_it_concludes_the_bug_is_absent():
@@ -319,6 +388,22 @@ def test_refine_flags_bug_absent_only_after_two_attempts():
     assert early.get("bug_absent") is False
     assert late["bug_absent"] is True
     assert late["execution_result"]["error_type"] == FailureType.FALSE_POSITIVE.value
+
+
+def test_refine_history_stays_bounded_as_attempts_pile_up():
+    """Five full attempts used to reach ~29 KB and push the rules out of a small context."""
+    big = "x" * 20_000
+    history = [{"attempt": i, "script": f"script_{i}",
+                "result": {"error_type": "Timeout", "stdout": f"PAGE_TEXT: page {i}\n{big}",
+                           "stderr": big}}
+               for i in range(1, 6)]
+    rendered = refine_mod._render_history(history)
+    assert len(rendered) < 15_000
+    # Older attempts keep what was tried and what the page showed; the newest stay whole.
+    assert "ATTEMPT 1 (summary)" in rendered and "PAGE_TEXT: page 1" in rendered
+    assert "script_1" not in rendered
+    assert "script_4" in rendered and "script_5" in rendered
+    assert "PAGE_TEXT: page 5" in rendered  # the head of a truncated stdout survives
 
 
 def test_mock_refine_keeps_the_target_url():
